@@ -1,0 +1,12 @@
+name = "hartree-fock"
+version = "0.1.0"
+license = "license"
+author = "lukaswittmann"
+maintainer = "lukas.wittmann@live.de"
+copyright = "Copyright 2022, lukaswittmann"
+[build]
+auto-executables = true
+auto-tests = true
+auto-examples = true
+[install]
+library = false
