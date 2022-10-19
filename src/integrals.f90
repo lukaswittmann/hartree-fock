@@ -144,19 +144,22 @@ subroutine en_interaction(molecule, z)
                 gP = (molecule(i, k)%alpha * molecule(i, k)%coords + molecule(j, l)%alpha * molecule(j, l)%coords)
                 Pp = gP / p
                 PG = Pp - molecule(j, l)%coords
+                
 
                 ! Calculate Boys Function
-                x = (p * dot_product(PG,PG))
+                x = (p * (dot_product(PG,PG)))
                 if (x == 0.) then
                     boys = 1. / (2. * n + 1)
                 else 
                     boys = regularized_gamma_p(n + 0.5, x) * gamma(n + 0.5) * (1. / (2.  * x ** (n + 0.5)))
                 end if
 
+                ! Integral of V_en still wrong!
                 V_ne(i,j) =  V_ne(i,j) - z(atom) * norm * coeff * Kab * (2.0 * pi / p) * boys
-                if (coeff /= 0.0) then
-                    print *, p , PG, dot_product(PG,PG)
-                end if
+                
+                !if (coeff /= 0.0) then
+                !    print *, p , PG, dot_product(PG,PG)
+                !end if
 
                 end do
             end do
