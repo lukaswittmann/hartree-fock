@@ -106,7 +106,6 @@ subroutine kinetic_energy(molecule)
 end subroutine kinetic_energy
 
 
-
 subroutine en_interaction(molecule, molecule_coords, z)
     implicit none
     type(primitive_gaussian), intent(in) :: molecule(:,:)
