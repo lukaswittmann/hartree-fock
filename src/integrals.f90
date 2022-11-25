@@ -23,11 +23,11 @@ subroutine gauss_product(molecule, a, b, c, d, norm, coeff, p, Kab) !result(outp
     !real(dp), dimension(4), intent(out) :: output
 
     coeff = molecule(a, b)%coeff * molecule(c, d)%coeff
-    ! Product exponent
+    ! Product exponent ! ! Eq. 64, 65
     p = molecule(a, b)%alpha + molecule(c, d)%alpha
     ! Normalization
     norm = ((4 * molecule(a, b)%alpha * molecule(c, d)%alpha) / (pi ** 2)) ** (3.0 / 4.0)
-    ! Product prefactor
+    ! Product prefactor ! ! Eq. 63, 66
     Kab = exp(- molecule(a, b)%alpha * molecule(c, d)%alpha/ p &
     * dot_product(molecule(a, b)%coords - molecule(c, d)%coords,molecule(a, b)%coords - molecule(c, d)%coords))
     ! Product center
@@ -67,13 +67,10 @@ subroutine overlap(molecule)
             ! Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
                 
             ! coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
-            
+
             call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
 
             S(i,j) = S(i,j) + norm * coeff * Kab * (pi / p) ** (1.5)
-
-
-
 
             end do
         end do   
@@ -107,16 +104,18 @@ subroutine kinetic_energy(molecule)
         do k = 1, size(molecule(i,:))
             do l = 1, size(molecule(j,:))
 
-            coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
-            norm = molecule(i, k)%norm() * molecule(j, l)%norm()
+            ! coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
+            ! norm = molecule(i, k)%norm() * molecule(j, l)%norm()
 
-            ! Eq. 63
-            Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
-            ! Eq. 64, 65
-            p = (molecule(i, k)%alpha + molecule(j, l)%alpha)
-            q = (molecule(i, k)%alpha * molecule(j, l)%alpha) / p 
-            ! Eq. 66
-            Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
+            ! ! Eq. 63
+            ! Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
+            ! ! Eq. 64, 65
+            ! p = (molecule(i, k)%alpha + molecule(j, l)%alpha)
+            ! q = (molecule(i, k)%alpha * molecule(j, l)%alpha) / p 
+            ! ! Eq. 66
+            ! Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
+
+            call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
 
             S = norm * coeff * Kab * (pi / p) ** (1.5)
 
@@ -163,17 +162,19 @@ subroutine en_interaction(molecule, molecule_coords, z)
             do k = 1, size(molecule(i,:))
                 do l = 1, size(molecule(j,:))
 
-                norm = molecule(i, k)%norm() * molecule(j, l)%norm()
+                ! norm = molecule(i, k)%norm() * molecule(j, l)%norm()
 
-                ! Eq. 63
-                Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
-                ! Eq. 64, 65
-                p = (molecule(i, k)%alpha + molecule(j, l)%alpha)
-                q = (molecule(i, k)%alpha * molecule(j, l)%alpha) / p 
-                ! Eq. 66
-                Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
+                ! ! Eq. 63
+                ! Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
+                ! ! Eq. 64, 65
+                ! p = (molecule(i, k)%alpha + molecule(j, l)%alpha)
+                ! q = (molecule(i, k)%alpha * molecule(j, l)%alpha) / p 
+                ! ! Eq. 66
+                ! Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
                     
-                coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
+                ! coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
+
+                call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
 
                 gP = (molecule(i, k)%alpha * molecule(i, k)%coords + molecule(j, l)%alpha * molecule(j, l)%coords)
                 Pp = gP / p

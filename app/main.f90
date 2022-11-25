@@ -15,6 +15,8 @@ molecule_coords(2,:) = (/0.,0.,1.6/) ! Position of H2 in Bohr
 molecule = def_molecule(molecule_coords)
 z = (/1.0, 1.0/)
 
-call overlap(molecule)
+! call overlap(molecule)
+! call kinetic_energy(molecule)
+call en_interaction(molecule, molecule_coords, z)
 
 end program main
