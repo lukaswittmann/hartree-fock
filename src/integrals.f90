@@ -107,10 +107,11 @@ end subroutine kinetic_energy
 
 
 
-subroutine en_interaction(molecule, z)
+subroutine en_interaction(molecule, molecule_coords, z)
     implicit none
     type(primitive_gaussian), intent(in) :: molecule(:,:)
     real(dp), dimension(2), intent(in) :: z
+    real(dp), dimension(2,3), intent(in) :: molecule_coords
     integer :: atom, natoms, nbasis, i, j, k, l
 
     real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: V_ne
@@ -131,6 +132,7 @@ subroutine en_interaction(molecule, z)
                 do l = 1, size(molecule(j,:))
 
                 norm = molecule(i, k)%norm() * molecule(j, l)%norm()
+
                 ! Eq. 63
                 Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
                 ! Eq. 64, 65
@@ -143,7 +145,7 @@ subroutine en_interaction(molecule, z)
 
                 gP = (molecule(i, k)%alpha * molecule(i, k)%coords + molecule(j, l)%alpha * molecule(j, l)%coords)
                 Pp = gP / p
-                PG = Pp - molecule(j, l)%coords
+                PG = Pp - molecule_coords(atom,:)
                 
 
                 ! Calculate Boys Function

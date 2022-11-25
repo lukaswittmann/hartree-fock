@@ -16,7 +16,7 @@ contains
 ! Normalization of primitive_gaussian
 real(dp) function norm(self)
     class(primitive_gaussian), intent(in) :: self
-    norm = ((2.0 * self%alpha) / pi) ** (0.75)
+    norm = ((2.0 * self%alpha) / pi) ** (3.0/4.0)
 end function norm
 
 ! 6-31G Basis
@@ -89,7 +89,7 @@ function def_molecule(molecule_coords)
 
     def_molecule2 = reshape([H1_1a, H1_1b, H1_1c, H1_2a, H1_2b, H1_2c,H2_1a, H2_1b, H2_1c, H2_2a, H2_2b, H2_2c], (/3,4/))
     
-    ! Resort array to make it more intuetive
+    ! Resort array to make it more intuitive
     do j = 1,3
         do i = 1,4
             def_molecule(i,j) = def_molecule2(j,i)
