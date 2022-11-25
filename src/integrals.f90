@@ -8,6 +8,34 @@ use stdlib_specialfunctions_gamma!, only: lig => lower_incomplete_gamma
 
 contains
 
+function boys()
+
+end function boys
+
+
+subroutine gauss_product(molecule, a, b, c, d, norm, coeff, p, Kab) !result(output)
+    !implicit none
+    type(primitive_gaussian), intent(in) :: molecule(:,:)
+    integer, intent(in) :: a, b, c, d
+    real(dp) :: diff
+    real(dp) :: p, norm, Kab, coeff
+    real(dp), dimension(3) :: Rp
+    !real(dp), dimension(4), intent(out) :: output
+
+    coeff = molecule(a, b)%coeff * molecule(c, d)%coeff
+    ! Product exponent
+    p = molecule(a, b)%alpha + molecule(c, d)%alpha
+    ! Normalization
+    norm = ((4 * molecule(a, b)%alpha * molecule(c, d)%alpha) / (pi ** 2)) ** (3.0 / 4.0)
+    ! Product prefactor
+    Kab = exp(- molecule(a, b)%alpha * molecule(c, d)%alpha/ p &
+    * dot_product(molecule(a, b)%coords - molecule(c, d)%coords,molecule(a, b)%coords - molecule(c, d)%coords))
+    ! Product center
+    Rp = (molecule(a, b)%alpha * molecule(a, b)%coords + molecule(c, d)%alpha * molecule(c, d)%coords) / p
+
+end subroutine gauss_product
+
+
 subroutine overlap(molecule)
     implicit none
     type(primitive_gaussian), intent(in) :: molecule(:,:)
@@ -29,18 +57,23 @@ subroutine overlap(molecule)
         do k = 1, size(molecule(i,:)) ! Number of primitives in i..
             do l = 1, size(molecule(j,:))
 
-            norm = molecule(i, k)%norm() * molecule(j, l)%norm()
-            ! Eq. 63
-            Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
-            ! Eq. 64, 65
-            p = (molecule(i, k)%alpha + molecule(j, l)%alpha)
-            q = (molecule(i, k)%alpha * molecule(j, l)%alpha) / p 
-            ! Eq. 66
-            Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
+            ! norm = molecule(i, k)%norm() * molecule(j, l)%norm()
+            ! ! Eq. 63
+            ! Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
+            ! ! Eq. 64, 65
+            ! p = (molecule(i, k)%alpha + molecule(j, l)%alpha)
+            ! q = (molecule(i, k)%alpha * molecule(j, l)%alpha) / p 
+            ! ! Eq. 66
+            ! Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
                 
-            coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
+            ! coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
+            
+            call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
 
             S(i,j) = S(i,j) + norm * coeff * Kab * (pi / p) ** (1.5)
+
+
+
 
             end do
         end do   
@@ -146,7 +179,6 @@ subroutine en_interaction(molecule, molecule_coords, z)
                 Pp = gP / p
                 PG = Pp - molecule_coords(atom,:)
                 
-
                 ! Calculate Boys Function
                 x = (p * (dot_product(PG,PG)))
                 if (x == 0.) then
@@ -155,13 +187,8 @@ subroutine en_interaction(molecule, molecule_coords, z)
                     boys = regularized_gamma_p(n + 0.5, x) * gamma(n + 0.5) * (1. / (2.  * x ** (n + 0.5)))
                 end if
 
-                ! Integral of V_en still wrong!
                 V_ne(i,j) =  V_ne(i,j) - z(atom) * norm * coeff * Kab * (2.0 * pi / p) * boys
                 
-                !if (coeff /= 0.0) then
-                !    print *, p , PG, dot_product(PG,PG)
-                !end if
-
                 end do
             end do
             end do
@@ -175,15 +202,47 @@ end subroutine en_interaction
 
 subroutine ee_interaction(molecule)
     type(primitive_gaussian), intent(in) :: molecule(:,:)
-    integer :: nbasis, nprimitives_i, nprimitives_j, nprimitives_k, nprimitives_l, i, j, k, l
+    integer :: nbasis, i, j, k, l, pi, pj, pk, pl
 
     real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: V_ne   
     real(dp) :: norm, p, q, coeff, Kab, S, boys, x, n = 0.0
-    real(dp), dimension(3) :: Q_xyz, gP, Pp, PG
+    real(dp), dimension(3) :: pij, pkl, gPij, gPkl
 
     nbasis = size(molecule, 1)
 
+    ! Sum over Basisfunctions
+    do i = 1, nbasis
+        do j = 1, nbasis
+            do k = 1, nbasis
+                do l = 1, nbasis
 
+                ! Sum over Primitives in each Basisfunction
+                do pi = 1, size(molecule(i,:))
+                    do pj = 1, size(molecule(j,:))
+                        do pk = 1, size(molecule(k,:))
+                            do pl = 1, size(molecule(l,:))
+
+                            ! No intent for better workflow
+                            norm = molecule(i, pi)%norm() * molecule(j, pj)%norm() * molecule(k, pk)%norm() * molecule(l, pl)%norm()
+                            coeff = molecule(i, pi)%coeff * molecule(j, pj)%coeff * molecule(k, pk)%coeff * molecule(l, pl)%coeff
+
+                            ! Use gaussian product theorem to make one center integral out of two center integral
+                            pij = molecule(i, pi)%alpha + molecule(j, pj)%alpha
+                            pkl = molecule(k, pk)%alpha + molecule(l, pl)%alpha
+
+                            gPij = molecule(i, pi)%alpha * molecule(i, pi)%coords + molecule(j, pj)%alpha * molecule(j, pj)%coords
+                            gPkl = molecule(k, pk)%alpha * molecule(k, pk)%coords + molecule(l, pl)%alpha * molecule(l, pl)%coords
+
+
+                            end do
+                        end do            
+                    end do
+                end do
+
+                end do
+            end do
+        end do
+    end do
 
 end subroutine ee_interaction
 
