@@ -14,7 +14,6 @@ end function boys
 
 
 subroutine gauss_product(molecule, a, b, c, d, norm, coeff, p, Kab) !result(output)
-    !implicit none
     type(primitive_gaussian), intent(in) :: molecule(:,:)
     integer, intent(in) :: a, b, c, d
     real(dp) :: diff
@@ -22,6 +21,7 @@ subroutine gauss_product(molecule, a, b, c, d, norm, coeff, p, Kab) !result(outp
     real(dp), dimension(3) :: Rp
     !real(dp), dimension(4), intent(out) :: output
 
+    ! Szabo Ostlund p. 311
     coeff = molecule(a, b)%coeff * molecule(c, d)%coeff
     ! Product exponent ! ! Eq. 64, 65
     p = molecule(a, b)%alpha + molecule(c, d)%alpha
@@ -34,6 +34,12 @@ subroutine gauss_product(molecule, a, b, c, d, norm, coeff, p, Kab) !result(outp
     Rp = (molecule(a, b)%alpha * molecule(a, b)%coords + molecule(c, d)%alpha * molecule(c, d)%coords) / p
 
 end subroutine gauss_product
+
+
+function boys()
+ ! SZ p. 412, boys type function needed for potential integral and multi-electron tensor
+ 
+end function boys
 
 
 subroutine overlap(molecule)
@@ -205,9 +211,8 @@ subroutine ee_interaction(molecule)
     type(primitive_gaussian), intent(in) :: molecule(:,:)
     integer :: nbasis, i, j, k, l, pi, pj, pk, pl
 
-    real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: V_ne   
-    real(dp) :: norm, p, q, coeff, Kab, S, boys, x, n = 0.0
-    real(dp), dimension(3) :: pij, pkl, gPij, gPkl
+    real(dp) :: norm, coeff, pij, pkl
+    real(dp), dimension(3) :: gPij, gPkl
 
     nbasis = size(molecule, 1)
 
