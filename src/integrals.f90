@@ -22,8 +22,7 @@ subroutine overlap(molecule)
 
     nbasis = size(molecule,1)
 
-    ! Integral found in TYygve Helgaker, Modern Electronic Structure Theory, C H A P T E R 12,
-    ! G A U S S I A N BASIS SETS A N D MOLECULAR I N T E G R A L S
+    ! Helgaker, Modern Electronic Structure Theory
     do i = 1, nbasis
         do j = 1, nbasis
                 
@@ -31,9 +30,9 @@ subroutine overlap(molecule)
         do k = 1, size(molecule(i,:)) ! Number of primitives in i..
             do l = 1, size(molecule(j,:))
 
+            ! SO A.9 with p exponent of new gaussian, norm and coeff needed due to multiple gaussians per bf
             call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
-
-            S(i,j) = S(i,j) + norm * coeff * Kab * (pi / p) ** (1.5)
+            S(i,j) = S(i,j) + (pi / p) ** (1.5) * Kab * norm * coeff
 
             end do
         end do   
@@ -50,7 +49,7 @@ subroutine kinetic_energy(molecule)
     integer :: nbasis, i, j, k, l, m
     real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: T
 
-    real(dp) :: norm, p, q, coeff, Kab, S
+    real(dp) :: norm, p, coeff, Kab, S, ab, tmp, tmp2
     real(dp), dimension(3) :: Q_xyz, gP, Pp, PG
 
     S = 0
@@ -58,8 +57,6 @@ subroutine kinetic_energy(molecule)
 
     nbasis = size(molecule,1)
 
-    ! Integral found in TYygve Helgaker, Modern Electronic Structure Theory, C H A P T E R 12,
-    ! G A U S S I A N BASIS SETS A N D MOLECULAR I N T E G R A L S
     do i = 1, nbasis
         do j = 1, nbasis
 
@@ -68,18 +65,12 @@ subroutine kinetic_energy(molecule)
             do l = 1, size(molecule(j,:))
 
             call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
+            S = (pi / p) ** (1.5) * Kab * norm * coeff
 
-            S = norm * coeff * Kab * (pi / p) ** (1.5)
+            ! OZ A.11
+            ab = molecule(i, k)%alpha * molecule(j, l)%alpha
+            T(i, j) = T(i, j) + (ab/p) * (3 + (2 * log(Kab))) * s
 
-            gP = (molecule(i, k)%alpha * molecule(i, k)%coords + molecule(j, l)%alpha * molecule(j, l)%coords)
-            Pp = gP / p
-            PG = Pp - molecule(j, l)%coords
-
-            T(i, j) = T(i, j) + 3 * molecule(j, l)%alpha * S 
-            do m = 1, 3
-                T(i, j) = T(i, j) - 2 * molecule(j, l)%alpha ** 2 * S * ((PG(m) ** 2) + 0.5 / p)
-            end do
-                
             end do
         end do   
         end do

@@ -12,8 +12,7 @@ subroutine gauss_product(molecule, a, b, c, d, norm, coeff, p, Kab) !result(outp
     integer, intent(in) :: a, b, c, d
     real(dp) :: diff
     real(dp) :: p, norm, Kab, coeff
-    real(dp), dimension(3) :: Rp
-    !real(dp), dimension(4), intent(out) :: output
+    ! real(dp), dimension(3) :: Rp
 
     ! Szabo Ostlund p. 311
     coeff = molecule(a, b)%coeff * molecule(c, d)%coeff
@@ -25,7 +24,7 @@ subroutine gauss_product(molecule, a, b, c, d, norm, coeff, p, Kab) !result(outp
     Kab = exp(- molecule(a, b)%alpha * molecule(c, d)%alpha/ p &
     * dot_product(molecule(a, b)%coords - molecule(c, d)%coords,molecule(a, b)%coords - molecule(c, d)%coords))
     ! Product center
-    Rp = (molecule(a, b)%alpha * molecule(a, b)%coords + molecule(c, d)%alpha * molecule(c, d)%coords) / p
+    ! Rp = (molecule(a, b)%alpha * molecule(a, b)%coords + molecule(c, d)%alpha * molecule(c, d)%coords) / p
 
 end subroutine gauss_product
 
