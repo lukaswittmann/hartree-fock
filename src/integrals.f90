@@ -2,44 +2,12 @@ module integrals
 use types
 use constants
 use basis
+use functions
 
 use stdlib_specialfunctions_gamma!, only: lig => lower_incomplete_gamma
 
 
 contains
-
-function boys()
-
-end function boys
-
-
-subroutine gauss_product(molecule, a, b, c, d, norm, coeff, p, Kab) !result(output)
-    type(primitive_gaussian), intent(in) :: molecule(:,:)
-    integer, intent(in) :: a, b, c, d
-    real(dp) :: diff
-    real(dp) :: p, norm, Kab, coeff
-    real(dp), dimension(3) :: Rp
-    !real(dp), dimension(4), intent(out) :: output
-
-    ! Szabo Ostlund p. 311
-    coeff = molecule(a, b)%coeff * molecule(c, d)%coeff
-    ! Product exponent ! ! Eq. 64, 65
-    p = molecule(a, b)%alpha + molecule(c, d)%alpha
-    ! Normalization
-    norm = ((4 * molecule(a, b)%alpha * molecule(c, d)%alpha) / (pi ** 2)) ** (3.0 / 4.0)
-    ! Product prefactor ! ! Eq. 63, 66
-    Kab = exp(- molecule(a, b)%alpha * molecule(c, d)%alpha/ p &
-    * dot_product(molecule(a, b)%coords - molecule(c, d)%coords,molecule(a, b)%coords - molecule(c, d)%coords))
-    ! Product center
-    Rp = (molecule(a, b)%alpha * molecule(a, b)%coords + molecule(c, d)%alpha * molecule(c, d)%coords) / p
-
-end subroutine gauss_product
-
-
-function boys()
- ! SZ p. 412, boys type function needed for potential integral and multi-electron tensor
- 
-end function boys
 
 
 subroutine overlap(molecule)
@@ -152,7 +120,7 @@ subroutine en_interaction(molecule, molecule_coords, z)
     integer :: atom, natoms, nbasis, i, j, k, l
 
     real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: V_ne
-    real(dp) :: norm, p, q, coeff, Kab, S, boys, x, n = 0.0
+    real(dp) :: boys, norm, p, q, coeff, Kab, S, x, n = 0.0
     real(dp), dimension(3) :: Q_xyz, gP, Pp, PG
     
     V_ne = 0
@@ -186,15 +154,15 @@ subroutine en_interaction(molecule, molecule_coords, z)
                 Pp = gP / p
                 PG = Pp - molecule_coords(atom,:)
                 
-                ! Calculate Boys Function
-                x = (p * (dot_product(PG,PG)))
-                if (x == 0.) then
-                    boys = 1. / (2. * n + 1)
-                else 
-                    boys = regularized_gamma_p(n + 0.5, x) * gamma(n + 0.5) * (1. / (2.  * x ** (n + 0.5)))
-                end if
+                ! ! Calculate Boys Function
+                ! x = (p * (dot_product(PG,PG)))
+                ! if (x == 0.) then
+                !     boys = 1. / (2. * n + 1)
+                ! else 
+                !     boys = regularized_gamma_p(n + 0.5, x) * gamma(n + 0.5) * (1. / (2.  * x ** (n + 0.5)))
+                ! end if
 
-                V_ne(i,j) =  V_ne(i,j) - z(atom) * norm * coeff * Kab * (2.0 * pi / p) * boys
+                V_ne(i,j) =  V_ne(i,j) - z(atom) * norm * coeff * Kab * (2.0 * pi / p) * calc_boys((p * (dot_product(PG,PG))), n)
                 
                 end do
             end do
