@@ -31,17 +31,6 @@ subroutine overlap(molecule)
         do k = 1, size(molecule(i,:)) ! Number of primitives in i..
             do l = 1, size(molecule(j,:))
 
-            ! norm = molecule(i, k)%norm() * molecule(j, l)%norm()
-            ! ! Eq. 63
-            ! Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
-            ! ! Eq. 64, 65
-            ! p = (molecule(i, k)%alpha + molecule(j, l)%alpha)
-            ! q = (molecule(i, k)%alpha * molecule(j, l)%alpha) / p 
-            ! ! Eq. 66
-            ! Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
-                
-            ! coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
-
             call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
 
             S(i,j) = S(i,j) + norm * coeff * Kab * (pi / p) ** (1.5)
@@ -77,17 +66,6 @@ subroutine kinetic_energy(molecule)
         ! Iterate over l and m primitives in basis
         do k = 1, size(molecule(i,:))
             do l = 1, size(molecule(j,:))
-
-            ! coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
-            ! norm = molecule(i, k)%norm() * molecule(j, l)%norm()
-
-            ! ! Eq. 63
-            ! Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
-            ! ! Eq. 64, 65
-            ! p = (molecule(i, k)%alpha + molecule(j, l)%alpha)
-            ! q = (molecule(i, k)%alpha * molecule(j, l)%alpha) / p 
-            ! ! Eq. 66
-            ! Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
 
             call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
 
@@ -136,31 +114,11 @@ subroutine en_interaction(molecule, molecule_coords, z)
             do k = 1, size(molecule(i,:))
                 do l = 1, size(molecule(j,:))
 
-                ! norm = molecule(i, k)%norm() * molecule(j, l)%norm()
-
-                ! ! Eq. 63
-                ! Q_xyz = (molecule(i, k)%coords - molecule(j, l)%coords)
-                ! ! Eq. 64, 65
-                ! p = (molecule(i, k)%alpha + molecule(j, l)%alpha)
-                ! q = (molecule(i, k)%alpha * molecule(j, l)%alpha) / p 
-                ! ! Eq. 66
-                ! Kab = exp(-q * dot_product(Q_xyz,Q_xyz))
-                    
-                ! coeff = molecule(i, k)%coeff * molecule(j, l)%coeff
-
                 call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
 
                 gP = (molecule(i, k)%alpha * molecule(i, k)%coords + molecule(j, l)%alpha * molecule(j, l)%coords)
                 Pp = gP / p
                 PG = Pp - molecule_coords(atom,:)
-                
-                ! ! Calculate Boys Function
-                ! x = (p * (dot_product(PG,PG)))
-                ! if (x == 0.) then
-                !     boys = 1. / (2. * n + 1)
-                ! else 
-                !     boys = regularized_gamma_p(n + 0.5, x) * gamma(n + 0.5) * (1. / (2.  * x ** (n + 0.5)))
-                ! end if
 
                 V_ne(i,j) =  V_ne(i,j) - z(atom) * norm * coeff * Kab * (2.0 * pi / p) * calc_boys((p * (dot_product(PG,PG))), n)
                 
