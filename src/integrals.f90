@@ -89,8 +89,8 @@ subroutine en_interaction(molecule, molecule_coords, z)
     integer :: atom, natoms, nbasis, i, j, k, l
 
     real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: V_ne
-    real(dp) :: boys, norm, p, q, coeff, Kab, S, x, n = 0.0
-    real(dp), dimension(3) :: Q_xyz, gP, Pp, PG
+    real(dp) :: boys, norm, p, coeff, Kab, S, x, n = 0.0
+    real(dp), dimension(3) :: Rp, Rnp
     
     V_ne = 0
 
@@ -107,11 +107,13 @@ subroutine en_interaction(molecule, molecule_coords, z)
 
                 call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
 
-                gP = (molecule(i, k)%alpha * molecule(i, k)%coords + molecule(j, l)%alpha * molecule(j, l)%coords)
-                Pp = gP / p
-                PG = Pp - molecule_coords(atom,:)
+                ! Center of gaussian product (als in gauss_product, will be shortened later)
+                Rp = (molecule(i, k)%alpha * molecule(i, k)%coords + molecule(j, l)%alpha * molecule(j, l)%coords) / p
+                ! Vector of R nuclear to R gaussian product
+                Rnp = Rp - molecule_coords(atom,:) !! Rp - Rc
 
-                V_ne(i,j) =  V_ne(i,j) - z(atom) * norm * coeff * Kab * (2.0 * pi / p) * calc_boys((p * (dot_product(PG,PG))), n)
+                ! OZ A.33 but with boys instead of erf
+                V_ne(i,j) =  V_ne(i,j) - (norm * coeff) * (2.0 * pi * z(atom) * Kab / p  * calc_boys(p * (dot_product(Rnp,Rnp)), n))
                 
                 end do
             end do
