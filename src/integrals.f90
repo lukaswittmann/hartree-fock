@@ -10,13 +10,14 @@ use stdlib_specialfunctions_gamma!, only: lig => lower_incomplete_gamma
 contains
 
 
-subroutine overlap(molecule)
+subroutine overlap(molecule, S)
     implicit none
     type(primitive_gaussian), intent(in) :: molecule(:,:)
     integer :: nbasis, i, j, k, l
-    real(dp) :: norm, p, q, coeff, Kab
+    real(dp) :: norm, p, coeff, Kab
     real(dp), dimension(3) :: Q_xyz
     real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: S
+    real(dp), dimension(3) :: Rp
 
     S = 0
 
@@ -31,7 +32,7 @@ subroutine overlap(molecule)
             do l = 1, size(molecule(j,:))
 
             ! SO A.9 with p exponent of new gaussian, norm and coeff needed due to multiple gaussians per bf
-            call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
+            call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab, Rp)
             S(i,j) = S(i,j) + (pi / p) ** (1.5) * Kab * norm * coeff
 
             end do
@@ -39,18 +40,18 @@ subroutine overlap(molecule)
         end do
     end do
 
-    print *, S
+    !print *, S
     
 end subroutine overlap
 
 
-subroutine kinetic_energy(molecule)
+subroutine kinetic_energy(molecule, T)
     type(primitive_gaussian), intent(in) :: molecule(:,:)
     integer :: nbasis, i, j, k, l, m
     real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: T
 
-    real(dp) :: norm, p, coeff, Kab, S, ab, tmp, tmp2
-    real(dp), dimension(3) :: Q_xyz, gP, Pp, PG
+    real(dp) :: norm, p, coeff, Kab, S, ab
+    real(dp), dimension(3) ::  Rp
 
     S = 0
     T = 0
@@ -64,7 +65,7 @@ subroutine kinetic_energy(molecule)
         do k = 1, size(molecule(i,:))
             do l = 1, size(molecule(j,:))
 
-            call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
+            call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab, Rp)
             S = (pi / p) ** (1.5) * Kab * norm * coeff
 
             ! OZ A.11
@@ -76,12 +77,12 @@ subroutine kinetic_energy(molecule)
         end do
     end do
 
-    print *, T
+    !print *, T
 
 end subroutine kinetic_energy
 
 
-subroutine en_interaction(molecule, molecule_coords, z)
+subroutine en_interaction(molecule, molecule_coords, z, V_ne)
     implicit none
     type(primitive_gaussian), intent(in) :: molecule(:,:)
     real(dp), dimension(2), intent(in) :: z
@@ -105,10 +106,8 @@ subroutine en_interaction(molecule, molecule_coords, z)
             do k = 1, size(molecule(i,:))
                 do l = 1, size(molecule(j,:))
 
-                call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab)
+                call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab, Rp)
 
-                ! Center of gaussian product (als in gauss_product, will be shortened later)
-                Rp = (molecule(i, k)%alpha * molecule(i, k)%coords + molecule(j, l)%alpha * molecule(j, l)%coords) / p
                 ! Vector of R nuclear to R gaussian product
                 Rnp = Rp - molecule_coords(atom,:) !! Rp - Rc
 
@@ -121,19 +120,28 @@ subroutine en_interaction(molecule, molecule_coords, z)
         end do
     end do
 
-    print *, V_ne
+    !print *, V_ne
 
 end subroutine en_interaction
 
 
-subroutine ee_interaction(molecule)
+subroutine ee_interaction(molecule, V_ee)
     type(primitive_gaussian), intent(in) :: molecule(:,:)
     integer :: nbasis, i, j, k, l, pi, pj, pk, pl
 
-    real(dp) :: norm, coeff, pij, pkl
-    real(dp), dimension(3) :: gPij, gPkl
+    real(dp) :: normGlob, coeffGlob ! global
+    real(dp) :: normGp1, coeffGp1, pGp1, KabGp1, normGp2, coeffGp2, pGp2, KabGp2 ! gaussian product 1 & 2
+    real(dp), dimension(3) :: RpGp1, RpGp2, Rpp
+
+    real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1)),INT(size(molecule,1)),INT(size(molecule,1))) :: V_ee
+
+    real(dp) :: fact = 1.0, n = 0.
+
+    integer :: x, y
 
     nbasis = size(molecule, 1)
+
+    V_ee(:,:,:,:) = 0
 
     ! Sum over Basisfunctions
     do i = 1, nbasis
@@ -147,16 +155,36 @@ subroutine ee_interaction(molecule)
                         do pk = 1, size(molecule(k,:))
                             do pl = 1, size(molecule(l,:))
 
-                            ! No intent for better workflow
-                            norm = molecule(i, pi)%norm() * molecule(j, pj)%norm() * molecule(k, pk)%norm() * molecule(l, pl)%norm()
-                            coeff = molecule(i, pi)%coeff * molecule(j, pj)%coeff * molecule(k, pk)%coeff * molecule(l, pl)%coeff
+                            !normGlob = molecule(i, pi)%norm() * molecule(j, pj)%norm() * molecule(k, pk)%norm() * molecule(l, pl)%norm()
+                            !coeffGlob = molecule(i, pi)%coeff * molecule(j, pj)%coeff * molecule(k, pk)%coeff * molecule(l, pl)%coeff
 
-                            ! Use gaussian product theorem to make one center integral out of two center integral
-                            pij = molecule(i, pi)%alpha + molecule(j, pj)%alpha
-                            pkl = molecule(k, pk)%alpha + molecule(l, pl)%alpha
+                            ! ! Use gaussian product theorem to make one center integral out of two center integral
+                            ! pij = molecule(i, pi)%alpha + molecule(j, pj)%alpha
+                            ! pkl = molecule(k, pk)%alpha + molecule(l, pl)%alpha
 
-                            gPij = molecule(i, pi)%alpha * molecule(i, pi)%coords + molecule(j, pj)%alpha * molecule(j, pj)%coords
-                            gPkl = molecule(k, pk)%alpha * molecule(k, pk)%coords + molecule(l, pl)%alpha * molecule(l, pl)%coords
+                            ! gPij = molecule(i, pi)%alpha * molecule(i, pi)%coords + molecule(j, pj)%alpha * molecule(j, pj)%coords
+                            ! gPkl = molecule(k, pk)%alpha * molecule(k, pk)%coords + molecule(l, pl)%alpha * molecule(l, pl)%coords
+
+
+call gauss_product(molecule, i, pi, j, pj, normGp1, coeffGp1, pGp1, KabGp1, RpGp1)
+call gauss_product(molecule, k, pk, l, pl, normGp2, coeffGp2, pGp2, KabGp2, RpGp2)
+
+normGlob = normGp1 * normGp2
+coeffGlob = coeffGp1 * coeffGp2
+
+! Due to empty basisfunctions
+if (coeffGlob /= 0.0) then
+
+
+Rpp = RpGp1 - RpGp2 ! Rpp = Rij - Rkl
+
+!!! for i = 2, 4 its wrong !!!
+V_ee(i,j,k,l) = V_ee(i,j,k,l) + normGlob * coeffGlob &
+                * (2. * pi ** (5./2.)) / (pGp1 * pGp2 * sqrt(pGp1 + pGp2)) & ! term1
+                * KabGp1 * KabGp2 & !term 2
+                * calc_boys(((pGp1 * pGp2 / (pGp1 + pGp2)) * (dot_product(Rpp,Rpp))), n)
+
+end if
 
 
                             end do
@@ -169,10 +197,41 @@ subroutine ee_interaction(molecule)
         end do
     end do
 
+    !print *, V_ee
+
 end subroutine ee_interaction
 
 
+subroutine nn_interaction(molecule_coords, z, V_nn)
+    real(dp), dimension(2,3), intent(in) :: molecule_coords
+    real(dp), dimension(2), intent(in) :: z
 
+    integer :: natoms, i, j
+    real(dp) :: V_nn, Rpx, Rpy, Rpz, absRp
+    real(dp), dimension(3) :: Rp
+
+    V_nn = 0
+    natoms = size(molecule_coords, 1)
+
+    do i = 1, natoms
+        do j = 1, natoms
+            if (j > i) then
+
+            ! Vector of R nuclear to R gaussian product
+            Rpx = molecule_coords(i,1) - molecule_coords(j,1)
+            Rpy = molecule_coords(i,2) - molecule_coords(j,2)
+            Rpz = molecule_coords(i,3) - molecule_coords(j,3)
+                
+            absRp = sqrt(Rpx**2 + Rpy**2 + Rpz**2)
+            V_nn = V_nn + z(i) * z(j) / absRp
+
+            end if
+        end do
+    end do
+
+    !print *, V_nn
+
+end subroutine nn_interaction
 
 
 end module integrals
