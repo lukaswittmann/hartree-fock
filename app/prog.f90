@@ -90,6 +90,9 @@ contains
       real(wp), dimension(:, :), allocatable :: coeffs
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      real(wp) :: damp
+
+      ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       real(wp), dimension(:, :), allocatable :: S, T, V
       real(wp), dimension(:), allocatable :: S_packed, T_packed, V_packed
 
@@ -157,11 +160,11 @@ contains
       write (*, "(A)") "Nuclear repulsion"
       write (*, 102)
 
-      !> Nuclear repulsion energy
+      !> Nuclear repulsion energy enn = ZA * ZB / | R1 - R2 |
       enn = 0.0_wp
-      do i = 1, nat
-         do j = i+1, nat
-            enn = enn + chrg(i) * chrg(j) / sqrt(sum((xyz(:, i) - xyz(:, j))**2))
+      do i = 1, nat - 1
+         do j = i + 1, nat
+         enn = enn + chrg(i)*chrg(j)/norm2(xyz(:, i) - xyz(:, j))
          end do
       end do
 
@@ -341,11 +344,11 @@ contains
       !> Calculate two-electron integrals
       do i = 1, nbf
          do j = 1, i
-         do k = 1, i
-            do l = 1, merge(j, k, i == k)
+            do k = 1, i
+               do l = 1, merge(j, k, i == k)
                   call twoint( &
-                     xyz(:, bf_atom_map(i)), xyz(:, bf_atom_map(i)), &
-                     xyz(:, bf_atom_map(k)), xyz(:, bf_atom_map(k)), &
+                     xyz(:, bf_atom_map(i)), xyz(:, bf_atom_map(j)), &
+                     xyz(:, bf_atom_map(k)), xyz(:, bf_atom_map(l)), &
                      expnts(:, i), expnts(:, j), expnts(:, k), expnts(:, l), &
                      coeffs(:, i), coeffs(:, j), coeffs(:, k), coeffs(:, l), &
                      two_ints(i, j, k, l))
@@ -379,7 +382,7 @@ contains
       
       !> Header
       if (present(print_level)) then
-         write(*, '(A6, A20,A20, A20)') 'Iter', 'E_scf', 'E_tot', 'Delta'
+         write(*, '(A6, 2A20, A8)') 'Iter', 'E_scf', 'Delta', 'Damp'
       end if
 
       !> SCF iterations
@@ -391,17 +394,16 @@ contains
             do j = 1, nbf
                do k = 1, nbf
                   do l = 1, nbf
-                     ! F(i, j) = F(i, j) + P(k, l) * (two_ints(i, j, k, l) - 0.5_wp *  two_ints(i, l, k, j))
-                     F(i, j) = F(i, j) + P(k, l)*( &
-                        two_ints(i, j, l, k) - 0.5_wp*two_ints(i, l, j, k))
+                     F(i, j) = F(i, j) + P(k, l) * (two_ints(i, j, k, l) - 0.5_wp *  two_ints(i, l, k, j))
                   end do
                end do
             end do
          end do
          call pack_matrix(F, F_packed)
 
-         !> Transform F to orthonormal basis
-         F_prime = matmul(matmul(transpose(X), F), X)
+         !> Transform F to orthonormal basis with damping
+         damp = 0.5
+         F_prime = damp * F_prime + (1 - damp) * matmul(matmul(transpose(X), F), X)
          call pack_matrix(F_prime, F_prime_packed)
 
          !> Diagonalize Fock matrix to obtain new orbital coefficients
@@ -418,13 +420,13 @@ contains
          call calc_hf_energy(T+V , F, P, nbf, escf)
 
          !> Print the HF energy
-         write(*, '(I6, F20.14, F20.14, F20.14)') iter, escf, escf + enn, escf - ehf
+         write(*, '(I6, 2F20.14, F8.4)') iter, escf, escf - ehf, damp
 
          !> Check for convergence
          if (abs(escf - ehf) < TOL_SCF) then
             ehf = escf
             write (*, 101)
-            write (*, "(A, I3, A, F18.14)") "SCF converged in ", iter, " iterations with energy ", ehf
+            write (*, "(A, I3)") "SCF converged in ", iter, " iterations"
             write (*, 102)
             exit
          end if
@@ -442,8 +444,17 @@ contains
 
          !> Update the HF energy
          ehf = escf
+        
 
       end do
+
+      !> Print the final energies
+      write (*, 101)
+      write(*, '(A, F20.14)') '  E_HF    :', ehf
+      write(*, '(A, F20.14)') '  V_nn    :', enn
+      write(*, '(A, F20.14)') '  E_total :', ehf + enn
+      write (*, 102)
+
 
       !*********************************************************
       !******************* PROPERTY CALCULATIONS ***************

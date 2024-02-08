@@ -82,7 +82,7 @@ program main_prog
   !> convergence criteria
   real(wp), parameter :: TOL_SCF = 1.0e-8_wp
   real(wp), parameter :: TOL_OPT = 1.0e-4_wp
-  integer, parameter :: MAX_SCF = 100
+  integer, parameter :: MAX_SCF = 125
   integer, parameter :: MAX_OPT_GEOM = 1000
   integer, parameter :: MAX_OPT_EXP = 1000
   real(wp), parameter :: COORD_STEP_SIZE = 0.1_wp
@@ -221,9 +221,9 @@ program main_prog
     !> final energy calculation (uses optimized values)
     write (*, 101)
     write (*, "(A)") "RHF calculation"
-    write (*, 102)
     call scf_prog(nat, nel, nbf, ng, xyz, chrg, zeta, bf_atom_map, &
                   ehf, MAX_SCF, TOL_SCF, do_mp2, print_level)
+    write (*, 102)
 
   end if
 
