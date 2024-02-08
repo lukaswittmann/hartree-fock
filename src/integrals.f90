@@ -1,237 +1,201 @@
 module integrals
-use types
-use constants
-use basis
-use functions
+    implicit none
 
-use stdlib_specialfunctions_gamma!, only: lig => lower_incomplete_gamma
+    private
+    public :: oneint,twoint
 
+    integer, parameter :: wp = selected_real_kind(15)
+
+    real(wp), parameter :: pi = 4.0_wp*atan(1.0_wp)
+    real(wp), parameter :: tpi = 2.0_wp*pi
+    real(wp), parameter :: twopi25 = 2.0_wp*pi**(2.5_wp)
 
 contains
 
+!> one electron integrals over spherical gaussian functions
+pure subroutine oneint(xyz, chrg, r_a, r_b, alp, bet, ci, cj, sab, tab, vab)
 
-subroutine overlap(molecule, S)
     implicit none
-    type(primitive_gaussian), intent(in) :: molecule(:,:)
-    integer :: nbasis, i, j, k, l
-    real(dp) :: norm, p, coeff, Kab
-    real(dp), dimension(3) :: Q_xyz
-    real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: S
-    real(dp), dimension(3) :: Rp
 
-    S = 0
+    !> position of all atoms in atomic units
+    real(wp), intent(in)  :: xyz(:, :)
+    !> nuclear charges
+    real(wp), intent(in)  :: chrg(:)
+    !> aufpunkt of gaussians
+    real(wp), intent(in)  :: r_a(:)
+    real(wp), intent(in)  :: r_b(:)
+    !> gaussian exponents of the primitives
+    real(wp), intent(in)  :: alp(:)
+    real(wp), intent(in)  :: bet(:)
+    !> contraction coeffients with normalisation constants of primitives
+    real(wp), intent(in)  :: ci(:)
+    real(wp), intent(in)  :: cj(:)
 
-    nbasis = size(molecule,1)
+    !> overlap integral <a|b>
+    real(wp), intent(out) :: sab
+    !> kinetic energy integral <a|T|b>
+    real(wp), intent(out) :: tab
+    !> nuclear attraction integrals <a|Σ z/r|b>
+    real(wp), intent(out) :: vab
 
-    ! Helgaker, Modern Electronic Structure Theory
-    do i = 1, nbasis
-        do j = 1, nbasis
-                
-        ! Iterate over l and m primitives in basis
-        do k = 1, size(molecule(i,:)) ! Number of primitives in i..
-            do l = 1, size(molecule(j,:))
+    !> number of primitives
+    integer :: npa
+    integer :: npb
+    !> number of atoms in the system
+    integer :: nat
+    !> local variables
+    integer  :: i,j,k
+    real(wp) :: rab,ab,eab,oab,xab,est
+    real(wp) :: s00,fact,rcp,r_p(3),cab
 
-            ! SO A.9 with p exponent of new gaussian, norm and coeff needed due to multiple gaussians per bf
-            call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab, Rp)
-            S(i,j) = S(i,j) + (pi / p) ** (1.5) * Kab * norm * coeff
+    intrinsic :: sum,sqrt,exp
 
-            end do
-        end do   
-        end do
-    end do
+    nat = min(size(xyz, dim=2), size(chrg))
+    npa = min(size(alp), size(ci))
+    npb = min(size(bet), size(cj))
 
-    !print *, S
-    
-end subroutine overlap
+    sab = 0.0_wp
+    tab = 0.0_wp
+    vab = 0.0_wp
 
+    rab = sum( (r_a-r_b)**2 )
 
-subroutine kinetic_energy(molecule, T)
-    type(primitive_gaussian), intent(in) :: molecule(:,:)
-    integer :: nbasis, i, j, k, l, m
-    real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: T
+    do i=1,npa
+        do j=1,npb
+            eab = alp(i)+bet(j)
+            oab = 1.0_wp/eab
+            cab = ci(i)*cj(j)
+            xab = alp(i)*bet(j)*oab
+            est = rab*xab
+            ab = exp(-est)
+            s00 = cab*ab*sqrt(pi*oab)**3
 
-    real(dp) :: norm, p, coeff, Kab, S, ab
-    real(dp), dimension(3) ::  Rp
+            !        overlap
+            sab = sab+s00
 
-    S = 0
-    T = 0
+            !        kinetic energy
+            tab = tab + xab*(3.0_wp-2.0_wp*est)*s00
 
-    nbasis = size(molecule,1)
+            !        nuclear attraction
+            fact = cab*tpi*oab*ab
+            r_p = (alp(i)*r_a+bet(j)*r_b)*oab
+            do k = 1, nat
+                rcp = sum( (r_p-xyz(:,k))**2 )
+                vab  = vab - fact*chrg(k)*boysf0(eab*rcp)
+            enddo
 
-    do i = 1, nbasis
-        do j = 1, nbasis
+        enddo
+    enddo
 
-        ! Iterate over l and m primitives in basis
-        do k = 1, size(molecule(i,:))
-            do l = 1, size(molecule(j,:))
+end subroutine oneint
 
-            call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab, Rp)
-            S = (pi / p) ** (1.5) * Kab * norm * coeff
+!> two-electron repulsion integral (ab|cd) over spherical gaussian functions
+!  quantity is given in chemist's notation
+pure subroutine twoint(r_a, r_b, r_c, r_d, alp, bet, gam, del, ci, cj, ck, cl, tei)
 
-            ! OZ A.11
-            ab = molecule(i, k)%alpha * molecule(j, l)%alpha
-            T(i, j) = T(i, j) + (ab/p) * (3 + (2 * log(Kab))) * s
-
-            end do
-        end do   
-        end do
-    end do
-
-    !print *, T
-
-end subroutine kinetic_energy
-
-
-subroutine en_interaction(molecule, molecule_coords, z, V_ne)
     implicit none
-    type(primitive_gaussian), intent(in) :: molecule(:,:)
-    real(dp), dimension(2), intent(in) :: z
-    real(dp), dimension(2,3), intent(in) :: molecule_coords
-    integer :: atom, natoms, nbasis, i, j, k, l
 
-    real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1))) :: V_ne
-    real(dp) :: boys, norm, p, coeff, Kab, S, x, n = 0.0
-    real(dp), dimension(3) :: Rp, Rnp
-    
-    V_ne = 0
+    !> aufpunkte of gaussians
+    real(wp), intent(in)  :: r_a(:)
+    real(wp), intent(in)  :: r_b(:)
+    real(wp), intent(in)  :: r_c(:)
+    real(wp), intent(in)  :: r_d(:)
+    !> gaussian exponents of the primitives
+    real(wp), intent(in)  :: alp(:)
+    real(wp), intent(in)  :: bet(:)
+    real(wp), intent(in)  :: gam(:)
+    real(wp), intent(in)  :: del(:)
+    !> contraction coeffients with normalisation constants of primitives
+    real(wp), intent(in)  :: ci(:)
+    real(wp), intent(in)  :: cj(:)
+    real(wp), intent(in)  :: ck(:)
+    real(wp), intent(in)  :: cl(:)
 
-    natoms = size(molecule, 1) / 2
-    nbasis = size(molecule, 1)
+    !> two electron integral (ab|cd) in chemist notation
+    real(wp), intent(out) :: tei
 
-    ! Integral found in https://www.mathematica-journal.com/2014/12/08/evaluation-of-gaussian-molecular-integrals-4/
-    do atom = 1, natoms
-        do i = 1, nbasis
-            do j = 1, nbasis
+    !> number of primitives
+    integer :: npa, npb, npc, npd
+    integer :: i,j,k,l
+    real(wp) :: rab,rcd,rpq,r_p(3),r_q(3),est
+    real(wp) :: eab,ecd,eabcd,epq,oab,ocd,cab,ccd
+    real(wp) :: ab,cd,abcd,pq
 
-            do k = 1, size(molecule(i,:))
-                do l = 1, size(molecule(j,:))
+    intrinsic :: sum,sqrt,exp
 
-                call gauss_product(molecule, i, k, j, l, norm, coeff, p, Kab, Rp)
+    npa = min(size(alp), size(ci))
+    npb = min(size(bet), size(cj))
+    npc = min(size(gam), size(ck))
+    npd = min(size(del), size(cl))
 
-                ! Vector of R nuclear to R gaussian product
-                Rnp = Rp - molecule_coords(atom,:) !! Rp - Rc
+    tei = 0.0_wp
 
-                ! OZ A.33 but with boys instead of erf
-                V_ne(i,j) =  V_ne(i,j) - (norm * coeff) * (2.0 * pi * z(atom) * Kab / p  * calc_boys(p * (dot_product(Rnp,Rnp)), n))
-                
-                end do
-            end do
-            end do
-        end do
-    end do
+    !  R²(a-b)
+    rab=sum( (r_a-r_b)**2 )
+    !  R²(c-d)
+    rcd=sum( (r_c-r_d)**2 )
 
-    !print *, V_ne
+    do i = 1, npa
+        do j = 1, npb
+            cab = ci(i)*cj(j)
+            eab = alp(i)+bet(j)
+            oab = 1.0_wp/eab
+            est = alp(i)*bet(j)*rab*oab
+            ab = exp(-est)
 
-end subroutine en_interaction
+            !        new gaussian at r_p
+            r_p = (alp(i)*r_a+bet(j)*r_b)*oab
 
+            do k = 1, npc
+                do l = 1, npd
+                    ccd = ck(k)*cl(l)
+                    ecd = gam(k)+del(l)
+                    ocd = 1.0_wp/ecd
+                    est = gam(k)*del(l)*rcd*ocd
+                    cd = exp(-est)
 
-subroutine ee_interaction(molecule, V_ee)
-    type(primitive_gaussian), intent(in) :: molecule(:,:)
-    integer :: nbasis, i, j, k, l, pi, pj, pk, pl
+                    !              new gaussian at r_q
+                    r_q = (gam(k)*r_c+del(l)*r_d)*ocd
 
-    real(dp) :: normGlob, coeffGlob ! global
-    real(dp) :: normGp1, coeffGp1, pGp1, KabGp1, normGp2, coeffGp2, pGp2, KabGp2 ! gaussian product 1 & 2
-    real(dp), dimension(3) :: RpGp1, RpGp2, Rpp
+                    abcd = ab*cd
 
-    real(dp), dimension(INT(size(molecule,1)),INT(size(molecule,1)),INT(size(molecule,1)),INT(size(molecule,1))) :: V_ee
+                    !              distance between product gaussians
+                    rpq = sum( (r_p-r_q)**2 )
 
-    real(dp) :: fact = 1.0, n = 0.
+                    epq = eab*ecd
+                    eabcd = eab+ecd
 
-    integer :: x, y
+                    pq = rpq*epq/eabcd
+                    tei = tei + cab*ccd*abcd * twopi25/(epq*sqrt(eabcd)) &
+                        &           * boysf0(pq)
 
-    nbasis = size(molecule, 1)
+                enddo
+            enddo
+        enddo
+    enddo
 
-    V_ee(:,:,:,:) = 0
+end subroutine twoint
 
-    ! Sum over Basisfunctions
-    do i = 1, nbasis
-        do j = 1, nbasis
-            do k = 1, nbasis
-                do l = 1, nbasis
+!> zeroth order boys function
+pure elemental function boysf0(arg) result(boys)
+    implicit none
+    real(wp),intent(in) :: arg
+    real(wp) :: boys
 
-                ! Sum over Primitives in each Basisfunction
-                do pi = 1, size(molecule(i,:))
-                    do pj = 1, size(molecule(j,:))
-                        do pk = 1, size(molecule(k,:))
-                            do pl = 1, size(molecule(l,:))
+    intrinsic :: sqrt,erf
 
-                            !normGlob = molecule(i, pi)%norm() * molecule(j, pj)%norm() * molecule(k, pk)%norm() * molecule(l, pl)%norm()
-                            !coeffGlob = molecule(i, pi)%coeff * molecule(j, pj)%coeff * molecule(k, pk)%coeff * molecule(l, pl)%coeff
+    !> six term taylor expansion is suffient for precisions of 10e-14,
+    !  use analyical expression for all other term
+    if (arg.lt.0.05_wp) then
+        boys = 1.0_wp - 3.333333333333333e-1_wp * arg    &
+            &         + 6.666666666666666e-2_wp * arg**2 &
+            &         - 4.761904761904761e-3_wp * arg**3 &
+            &         + 1.763668430335097e-4_wp * arg**4 &
+            &         - 4.008337341670675e-6_wp * arg**5
+    else
+        boys = 0.5_wp*sqrt(pi/arg)*erf(sqrt(arg))
+    endif
 
-                            ! ! Use gaussian product theorem to make one center integral out of two center integral
-                            ! pij = molecule(i, pi)%alpha + molecule(j, pj)%alpha
-                            ! pkl = molecule(k, pk)%alpha + molecule(l, pl)%alpha
-
-                            ! gPij = molecule(i, pi)%alpha * molecule(i, pi)%coords + molecule(j, pj)%alpha * molecule(j, pj)%coords
-                            ! gPkl = molecule(k, pk)%alpha * molecule(k, pk)%coords + molecule(l, pl)%alpha * molecule(l, pl)%coords
-
-
-call gauss_product(molecule, i, pi, j, pj, normGp1, coeffGp1, pGp1, KabGp1, RpGp1)
-call gauss_product(molecule, k, pk, l, pl, normGp2, coeffGp2, pGp2, KabGp2, RpGp2)
-
-normGlob = normGp1 * normGp2
-coeffGlob = coeffGp1 * coeffGp2
-
-! Due to empty basisfunctions
-if (coeffGlob /= 0.0) then
-
-
-Rpp = RpGp1 - RpGp2 ! Rpp = Rij - Rkl
-
-!!! for i = 2, 4 its wrong !!!
-V_ee(i,j,k,l) = V_ee(i,j,k,l) + normGlob * coeffGlob &
-                * (2. * pi ** (5./2.)) / (pGp1 * pGp2 * sqrt(pGp1 + pGp2)) & ! term1
-                * KabGp1 * KabGp2 & !term 2
-                * calc_boys(((pGp1 * pGp2 / (pGp1 + pGp2)) * (dot_product(Rpp,Rpp))), n)
-
-end if
-
-
-                            end do
-                        end do            
-                    end do
-                end do
-
-                end do
-            end do
-        end do
-    end do
-
-    !print *, V_ee
-
-end subroutine ee_interaction
-
-
-subroutine nn_interaction(molecule_coords, z, V_nn)
-    real(dp), dimension(2,3), intent(in) :: molecule_coords
-    real(dp), dimension(2), intent(in) :: z
-
-    integer :: natoms, i, j
-    real(dp) :: V_nn, Rpx, Rpy, Rpz, absRp
-    real(dp), dimension(3) :: Rp
-
-    V_nn = 0
-    natoms = size(molecule_coords, 1)
-
-    do i = 1, natoms
-        do j = 1, natoms
-            if (j > i) then
-
-            ! Vector of R nuclear to R gaussian product
-            Rpx = molecule_coords(i,1) - molecule_coords(j,1)
-            Rpy = molecule_coords(i,2) - molecule_coords(j,2)
-            Rpz = molecule_coords(i,3) - molecule_coords(j,3)
-                
-            absRp = sqrt(Rpx**2 + Rpy**2 + Rpz**2)
-            V_nn = V_nn + z(i) * z(j) / absRp
-
-            end if
-        end do
-    end do
-
-    !print *, V_nn
-
-end subroutine nn_interaction
-
+end function boysf0
 
 end module integrals
