@@ -72,8 +72,6 @@ contains
 
       !> HF energy
       real(wp), intent(out) :: ehf
-      real(wp) :: emp2
-
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       !> energies
@@ -116,6 +114,13 @@ contains
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       integer :: i, j, k, l
+
+      ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      real(wp), dimension(:, :, :, :), allocatable :: mo_two_ints
+      real(wp), dimension(:, :, :, :), allocatable :: mo_two_ints_tmp
+      integer :: a, b, g, h
+      real(wp) :: emp2
+
 
       101 format(//, "---------------------------------------------------------------")
       102 format("---------------------------------------------------------------")
@@ -321,12 +326,12 @@ contains
       end if
 
       !> Calculate initial HF energy
-      call calc_hf_energy(T+V, F, P, nbf, escf)
+      call calc_hf_energy(T+V, F, P, nbf, ehf)
 
       !> Print the initial HF energy
       if (present(print_level)) then
          write(*, *) ''
-         write(*, '(A, F20.14)') 'E_HF_init :', escf
+         write(*, '(A, F20.14)') 'E_HF_init :', ehf
       end if
 
       !*********************************************************
@@ -380,10 +385,13 @@ contains
       write (*, 102)
       write(*, '(A)') '', ''
       
+      !> Damping factor
+      damp = 0.1_wp
+
       !> Header
-      if (present(print_level)) then
-         write(*, '(A6, 2A20, A8)') 'Iter', 'E_scf', 'Delta', 'Damp'
-      end if
+      write(*, '(A6, 2A20, A8)') 'Iter', 'E_scf', 'Delta', 'Damp'
+      write(*, '(A6, 2A20, A8)') '----', '------------------', '------------------', '------'
+      write(*, '(I6, 2F20.14, F8.4)') 0, ehf, 0.0_wp, damp
 
       !> SCF iterations
       do iter = 1, MAX_SCF
@@ -402,7 +410,6 @@ contains
          call pack_matrix(F, F_packed)
 
          !> Transform F to orthonormal basis with damping
-         damp = 0.5
          F_prime = damp * F_prime + (1 - damp) * matmul(matmul(transpose(X), F), X)
          call pack_matrix(F_prime, F_prime_packed)
 
@@ -426,7 +433,15 @@ contains
          if (abs(escf - ehf) < TOL_SCF) then
             ehf = escf
             write (*, 101)
-            write (*, "(A, I3)") "SCF converged in ", iter, " iterations"
+            write (*, "(A, I3, A)") "SCF converged in ", iter, " iterations"
+            write (*, 102)
+            exit
+         end if
+
+         !> Check if we have reached the maximum number of iterations
+         if (iter == MAX_SCF) then
+            write (*, 101)
+            write (*, "(A)") "SCF did not converge! Maximum number of iterations reached."
             write (*, 102)
             exit
          end if
@@ -450,17 +465,162 @@ contains
 
       !> Print the final energies
       write (*, 101)
+      write (*, "(A)") "Final energies:"
       write(*, '(A, F20.14)') '  E_HF    :', ehf
       write(*, '(A, F20.14)') '  V_nn    :', enn
       write(*, '(A, F20.14)') '  E_total :', ehf + enn
       write (*, 102)
 
+      !*********************************************************
+      !******************* PARTIAL CHARGES *********************
+      !*********************************************************
 
       !*********************************************************
-      !******************* PROPERTY CALCULATIONS ***************
+      !******************* CHARGE DENISTY **********************
       !*********************************************************
 
+      !*********************************************************
+      !******************* NUMERICAL GRADIENT ******************
+      !*********************************************************
 
+      !*********************************************************
+      !******************* RMP2 ********************************
+      !*********************************************************
+
+      write (*, 101)
+      write(*, '(A)') 'MP2 Calculation'
+      write (*, 102)
+
+      !> MO two-electron integrals
+      allocate(mo_two_ints(nbf, nbf, nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of mo_two_ints failed."
+      allocate(mo_two_ints_tmp(nbf, nbf, nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of mo_two_ints_tmp failed."
+
+      if (present(print_level)) then
+         write (*, 101)
+         write(*, '(A)') 'AO to MO transformation'
+         write (*, 102)
+      end if
+
+      !> AO to MO transformation (N^8)
+      do a = 1, nbf
+         do b = 1, nbf
+            do g = 1, nbf
+               do h = 1, nbf
+
+                  mo_two_ints(a, b, g, h) = 0.0_wp
+
+                  do i = 1, nbf
+                     do j = 1, nbf
+                        do k = 1, nbf
+                           do l = 1, nbf
+                              mo_two_ints(a, b, g, h) = mo_two_ints(a, b, g, h) + &
+                                 C(i, a) * C(j, b) * C(k, g) * C(l, h) * two_ints(i, j, k, l)
+                           end do
+                        end do
+                     end do
+                  end do
+
+               end do
+            end do
+         end do
+      end do
+
+      !> AO to MO transformation (N^5) via (ij|kl) -> (aj|kl) -> (ab|gl) -> (ab|gh)
+      mo_two_ints = 0.0_wp
+      do i = 1, nbf
+         do j = 1, nbf
+            do k = 1, nbf
+               do l = 1, nbf
+
+                  do a = 1, nbf
+                     mo_two_ints(i, j, k, l) = mo_two_ints(i, j, k, l) + &
+                        C(a, i) * two_ints(a, j, k, l)
+                  end do
+
+               end do
+            end do
+         end do
+      end do
+
+      mo_two_ints_tmp = mo_two_ints
+      mo_two_ints = 0.0_wp
+      do i = 1, nbf
+         do j = 1, nbf
+            do k = 1, nbf
+               do l = 1, nbf
+
+                  do b = 1, nbf
+                     mo_two_ints(i, j, k, l) = mo_two_ints(i, j, k, l) + &
+                        C(b, j) * mo_two_ints_tmp(i, b, k, l)
+                  end do
+
+               end do
+            end do
+         end do
+      end do
+
+      mo_two_ints_tmp = mo_two_ints
+      mo_two_ints = 0.0_wp
+      do i = 1, nbf
+         do j = 1, nbf
+            do k = 1, nbf
+               do l = 1, nbf
+
+                  do g = 1, nbf
+                     mo_two_ints(i, j, k, l) = mo_two_ints(i, j, k, l) + &
+                        C(g, k) * mo_two_ints_tmp(i, j, g, l)
+                  end do
+
+               end do
+            end do
+         end do
+      end do
+
+      mo_two_ints_tmp = mo_two_ints
+      mo_two_ints = 0.0_wp
+      do i = 1, nbf
+         do j = 1, nbf
+            do k = 1, nbf
+               do l = 1, nbf
+
+                  do h = 1, nbf
+                     mo_two_ints(i, j, k, l) = mo_two_ints(i, j, k, l) + &
+                        C(h, l) * mo_two_ints_tmp(i, j, k, h)
+                  end do
+
+               end do
+            end do
+         end do
+      end do
+
+      !> Calculate MP2 energy
+      emp2 = 0.0_wp
+      do a = 1, nel / 2
+         do b = 1, nel / 2
+            do g = nel / 2 + 1, nbf
+               do h = nel / 2 + 1, nbf
+               
+                  emp2 = emp2 + mo_two_ints(a, g, b, h) &
+                  * (2.0_wp * mo_two_ints(a, g, b, h) &
+                  - mo_two_ints(a, h, b, g)) / (eps(a) + eps(b) - eps(g) - eps(h))
+               
+               end do
+            end do
+         end do
+      end do
+
+      deallocate(mo_two_ints_tmp)
+      deallocate(mo_two_ints)
+
+      !> Print the MP2 energy
+      write (*, 101)
+      write(*, '(A)') 'MP2 energy'
+      write(*, '(A, F20.14)') '  E_MP2   :', emp2
+      write(*, '(A, F20.14)') '  E_HF    :', ehf
+      write(*, '(A, F20.14)') '  E_total :', ehf + enn + emp2
+      write (*, 102)
 
    end subroutine scf_prog
 

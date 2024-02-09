@@ -80,7 +80,7 @@ program main_prog
   real(wp) :: ehf
 
   !> convergence criteria
-  real(wp), parameter :: TOL_SCF = 1.0e-8_wp
+  real(wp), parameter :: TOL_SCF = 1.0e-9_wp
   real(wp), parameter :: TOL_OPT = 1.0e-4_wp
   integer, parameter :: MAX_SCF = 125
   integer, parameter :: MAX_OPT_GEOM = 1000
