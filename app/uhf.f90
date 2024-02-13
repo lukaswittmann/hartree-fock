@@ -1,5 +1,5 @@
 !> This is your module to write your very own SCF program.
-module scf_main
+module uhf_main
    !> Include standard Fortran environment for IO
    use iso_fortran_env, only : output_unit, error_unit
 
@@ -26,13 +26,13 @@ module scf_main
 
    !> All subroutines within this module are not exported, except for scf_prog
    private
-   public :: scf_prog
+   public :: uhf_prog
 
 contains
 
    !> This is the entry point to your program, do not modify the dummy arguments
-   subroutine scf_prog(nat, nel, nbf, ng, xyz, chrg, zeta, bf_atom_map, &
-                      ehf, MAX_SCF, TOL_SCF, do_mp2, print_level)
+   subroutine uhf_prog(nat, nel, nbf, ng, xyz, chrg, zeta, bf_atom_map, &
+                      ehf, MAX_SCF, TOL_SCF, print_level)
                       
       implicit none
 
@@ -67,11 +67,9 @@ contains
       !> amount of info printed during program run (0, 1, 2)
       integer, intent(in), optional :: print_level
 
-      !> do MP2 energy calculation at end
-      integer, intent(in), optional :: do_mp2
-
       !> HF energy
       real(wp), intent(out) :: ehf
+      real(wp) :: ehf_a, ehf_b
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       !> energies
@@ -91,36 +89,48 @@ contains
       real(wp) :: damp
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      real(wp), dimension(:, :), allocatable :: S, T, V
-      real(wp), dimension(:), allocatable :: S_packed, T_packed, V_packed
+
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      real(wp), dimension(:, :), allocatable :: X        ! orthonormalizer
-      real(wp), dimension(:, :), allocatable :: P        ! density matrix
-      real(wp), dimension(:, :), allocatable :: C        ! coeffs matrix
-      real(wp), dimension(:), allocatable :: C_packed    ! coeffs matrix
-      real(wp), dimension(:, :), allocatable :: C_prime        ! coeffs matrix
-      real(wp), dimension(:), allocatable :: C_prime_packed    ! coeffs matrix
-      real(wp), allocatable, dimension(:) :: eps         ! eigenvalues
-      integer, dimension(:, :), allocatable :: n_occ     ! occupation matrix
-      real(wp), dimension(:, :), allocatable :: F        ! Fock matrix
-      real(wp), dimension(:, :), allocatable :: F_prime  ! Fock matrix
-      real(wp), dimension(:), allocatable :: F_packed    ! Fock matrix
-      real(wp), dimension(:), allocatable :: F_prime_packed  ! Fock matrix
+
+      !> alpha & beta
+      real(wp), allocatable, dimension(:,:) :: S, T, V
+      real(wp), allocatable, dimension(:) :: S_packed, T_packed, V_packed
+      real(wp), allocatable, dimension(:,:) :: X
+
+      !> alpha
+      real(wp), allocatable, dimension(:) :: eps_a
+      integer, dimension(:, :), allocatable :: n_occ_a
+      real(wp), dimension(:, :), allocatable :: F_a
+      real(wp), dimension(:, :), allocatable :: F_prime_a
+      real(wp), dimension(:), allocatable :: F_packed_a
+      real(wp), dimension(:), allocatable :: F_prime_packed_a
+      real(wp), dimension(:, :), allocatable :: C_a
+      real(wp), dimension(:), allocatable :: C_packed_a
+      real(wp), dimension(:, :), allocatable :: C_prime_a
+      real(wp), dimension(:), allocatable :: C_prime_packed_a
+      real(wp), dimension(:, :), allocatable :: P_a
+
+      !> beta
+      real(wp), allocatable, dimension(:) :: eps_b
+      integer, dimension(:, :), allocatable :: n_occ_b
+      real(wp), dimension(:, :), allocatable :: F_b
+      real(wp), dimension(:, :), allocatable :: F_prime_b
+      real(wp), dimension(:), allocatable :: F_packed_b
+      real(wp), dimension(:), allocatable :: F_prime_packed_b
+      real(wp), dimension(:, :), allocatable :: C_b
+      real(wp), dimension(:), allocatable :: C_packed_b
+      real(wp), dimension(:, :), allocatable :: C_prime_b
+      real(wp), dimension(:), allocatable :: C_prime_packed_b
+      real(wp), dimension(:, :), allocatable :: P_b
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       integer :: alloc_stat
-      real(wp), dimension(:, :, :, :), allocatable :: two_ints ! 4D array of tei
+      real(wp), dimension(:, :, :, :), allocatable :: two_ints
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       integer :: i, j, k, l
-
-      ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      real(wp), dimension(:, :, :, :), allocatable :: mo_two_ints
-      real(wp), dimension(:, :, :, :), allocatable :: mo_two_ints_tmp
-      integer :: a, b, g, h
-      real(wp) :: emp2
-
+      integer :: spin
 
       101 format(//, "---------------------------------------------------------------")
       102 format("---------------------------------------------------------------")
@@ -249,92 +259,6 @@ contains
       end if
 
       !*********************************************************
-      !******************* INITIAL GUESS ***********************
-      !*********************************************************
-
-      write (*, 101)
-      write (*, "(A)") "Initial guess"
-      write (*, 102)
-      
-      !> Set the occupation matrix, for RHF this is the identity matrix
-      call set_n_occ(nbf, nel, n_occ)
-
-      !> Print the occupation matrix manually
-      write(*, '(A)') '', 'matrix : Initial n_occ:', ''
-      if (present(print_level)) then
-         do i = 1, nbf
-               write(output_unit, '(I6, I7)') i, n_occ(i, i)
-         end do
-      end if
-
-      !> Fock matrix
-      allocate(F(nbf, nbf), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of F failed."
-      allocate(F_packed(nbf*(nbf+1)/2), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of F_packed failed."
-      allocate(F_prime(nbf, nbf), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of F_prime failed."
-      allocate(F_prime_packed(nbf*(nbf+1)/2), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of F_prime_packed failed."
-
-      !>  Use Hcore as initial guess for Hamiltonian: F = H_0 = T + V
-      F = T + V
-      call pack_matrix(F, F_packed)
-
-      !> Transform F to orthonormal basis
-      F_prime = matmul(matmul(transpose(X), F), X)
-      call pack_matrix(F_prime, F_prime_packed)
-
-      !> Coeffs matrix
-      allocate(C(nbf, nbf), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of C failed."
-      allocate(C_packed(nbf*(nbf+1)/2), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of C_packed failed."
-      allocate(C_prime(nbf, nbf), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of C_prime failed."
-
-      !> Eigenvalues
-      allocate(eps(nbf), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of eps failed."
-
-      !> Diagonalize initial Fock matrix to obtain initial orbital coefficients
-      call solve_spev(F_prime_packed, eps, C_prime, alloc_stat)
-      if (alloc_stat /= 0) error stop "Diagonalization of F failed."
-     
-      !> Print the initial guesses
-      if (present(print_level)) then
-         call write_matrix(F, name='Initial guess F')
-         call write_matrix(F_prime, name='Initial guess F_prime')
-         call write_matrix(C, name='Initial guess C')
-         call write_matrix(C_prime, name='Initial guess C_prime')
-         call write_vector(eps, name='Initial guess eps')
-      end if
-
-      !> Transform C to original basis
-      C = matmul(X, C_prime)
-
-      !> Density matrix
-      allocate(P(nbf, nbf), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of P failed."
-
-      !> Form density matrix
-      P = matmul(matmul(C, n_occ), transpose(C))
-
-      !> Print the density matrix
-      if (present(print_level)) then
-         call write_matrix(P, name='Initial P')
-      end if
-
-      !> Calculate initial HF energy
-      call calc_hf_energy(T+V, F, P, nbf, ehf)
-
-      !> Print the initial HF energy
-      if (present(print_level)) then
-         write(*, *) ''
-         write(*, '(A, F20.14)') 'E_HF_init :', ehf
-      end if
-
-      !*********************************************************
       !******************* TWO-ELECTRON INTEGRALS **************
       !*********************************************************
 
@@ -377,6 +301,139 @@ contains
       end if
 
       !*********************************************************
+      !******************* INITIAL GUESS ***********************
+      !*********************************************************
+
+      write (*, 101)
+      write (*, "(A)") "Initial guess"
+      write (*, 102)
+      
+      !> Set the occupation matrix, for RHF this is the identity matrix
+      call set_n_occ(nbf, nel, n_occ_a, n_occ_b)
+
+      !> Print the occupation matrix manually
+      write(*, '(A)') '', 'matrix : Initial n_occ:', ''
+      if (present(print_level)) then
+         do i = 1, nbf
+               write(output_unit, '(I6, A3, I7)') i, "a", n_occ_a(i, i)
+               write(output_unit, '(I6, A3, I7)') i, "b", n_occ_b(i, i)
+         end do
+      end if
+
+      !> Density matrix
+      allocate(P_a(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of P failed."
+      allocate(P_b(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of P failed."
+
+      !> Form density matrix
+      P_a = matmul(matmul(X, n_occ_a), transpose(X))
+      !> Break the symmetry
+      P_b = 0.0_wp
+
+      !> Fock matrix
+      allocate(F_a(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of F failed."
+      allocate(F_prime_a(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of F_prime failed."
+      allocate(F_prime_packed_a(nbf*(nbf+1)/2), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of F_prime_packed failed."
+      allocate(F_b(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of F failed."
+      allocate(F_prime_b(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of F_prime failed."
+      allocate(F_prime_packed_b(nbf*(nbf+1)/2), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of F_prime_packed failed."
+      
+      !>  Use Hcore as initial guess for Hamiltonian: F = H_0 = T + V
+      F_a = T + V
+      F_b = T + V
+      do i = 1, nbf
+         do j = 1, nbf
+            do k = 1, nbf
+               do l = 1, nbf
+                  F_a(i, j) = F_a(i, j) + &
+                              (P_a(k, l) + P_b(k, l))*two_ints(i, j, l, k) - &
+                              P_a(k, l)*two_ints(i, l, j, k)
+                  F_b(i, j) = F_b(i, j) + &
+                              (P_a(k, l) + P_b(k, l))*two_ints(i, j, l, k) - &
+                              P_b(k, l)*two_ints(i, l, j, k)
+               end do
+            end do
+         end do
+      end do
+
+      !> Transform F to orthonormal basis
+      F_prime_a = matmul(matmul(transpose(X), F_a), X)
+      F_prime_b = matmul(matmul(transpose(X), F_b), X)
+      call pack_matrix(F_prime_a, F_prime_packed_a)
+      call pack_matrix(F_prime_b, F_prime_packed_b)
+
+      !> Coeffs matrix
+      allocate(C_a(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of C failed."
+      allocate(C_packed_a(nbf*(nbf+1)/2), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of C_packed failed."
+      allocate(C_prime_a(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of C_prime failed."
+      allocate(C_b(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of C failed."
+      allocate(C_packed_b(nbf*(nbf+1)/2), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of C_packed failed."
+      allocate(C_prime_b(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of C_prime failed."
+
+      !> Eigenvalues
+      allocate(eps_a(nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of eps failed."
+      allocate(eps_b(nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of eps failed."
+
+      !> Diagonalize initial Fock matrix to obtain initial orbital coefficients
+      call solve_spev(F_prime_packed_a, eps_a, C_prime_a, alloc_stat)
+      if (alloc_stat /= 0) error stop "Diagonalization of F_a failed."
+      call solve_spev(F_prime_packed_b, eps_b, C_prime_b, alloc_stat)
+      if (alloc_stat /= 0) error stop "Diagonalization of F_b failed."
+     
+      !> Print the initial guesses
+      if (present(print_level)) then
+         call write_matrix(F_a, name='Initial guess F_a')
+         call write_matrix(F_b, name='Initial guess F_b')
+         call write_matrix(F_prime_a, name='Initial guess F_prime_a')
+         call write_matrix(F_prime_b, name='Initial guess F_prime_b')
+         call write_matrix(C_a, name='Initial guess C_a')
+         call write_matrix(C_b, name='Initial guess C_b')
+         call write_matrix(C_prime_a, name='Initial guess C_prime_a')
+         call write_matrix(C_prime_b, name='Initial guess C_prime_b')
+         call write_vector(eps_a, name='Initial guess eps_a')
+         call write_vector(eps_b, name='Initial guess eps_b')
+      end if
+
+      !> Transform C to original basis
+      C_a = matmul(X, C_prime_a)
+      C_b = matmul(X, C_prime_b)
+
+      !> Form density matrix
+      P_a = matmul(matmul(C_a, n_occ_a), transpose(C_a))
+      P_b = matmul(matmul(C_b, n_occ_b), transpose(C_b))
+
+      !> Print the density matrix
+      if (present(print_level)) then
+         call write_matrix(P_a, name='Initial P_a')
+         call write_matrix(P_b, name='Initial P_b')
+      end if
+
+      !> Calculate initial HF energy
+      call calc_hf_energy(T+V, F_a, F_b, P_a, P_b, nbf, ehf)
+
+      !> Print the initial HF energy
+      if (present(print_level)) then
+         write(*, *) ''
+         write(*, '(A, 1F20.14)') 'E_HF_init :', ehf
+      end if
+
+   
+      !*********************************************************
       !******************* SCF ITERATIONS **********************
       !*********************************************************
 
@@ -396,35 +453,46 @@ contains
       !> SCF iterations
       do iter = 1, MAX_SCF
 
-         !> Construct the Fock matrix from the density matrix
-         F = T + V
+         !> Construct the Fock matrices from the density matrices
+         F_a = T + V
+         F_b = T + V
          do i = 1, nbf
             do j = 1, nbf
                do k = 1, nbf
                   do l = 1, nbf
-                     F(i, j) = F(i, j) + P(k, l) * (two_ints(i, j, k, l) - 0.5_wp *  two_ints(i, l, k, j))
+                     F_a(i, j) = F_a(i, j) + &
+                                 (P_a(k, l) + P_b(k, l))*two_ints(i, j, l, k) - &
+                                 P_a(k, l)*two_ints(i, l, j, k)
+                     F_b(i, j) = F_b(i, j) + &
+                                 (P_a(k, l) + P_b(k, l))*two_ints(i, j, l, k) - &
+                                 P_b(k, l)*two_ints(i, l, j, k)
                   end do
                end do
             end do
          end do
-         call pack_matrix(F, F_packed)
 
          !> Transform F to orthonormal basis with damping
-         F_prime = damp * F_prime + (1 - damp) * matmul(matmul(transpose(X), F), X)
-         call pack_matrix(F_prime, F_prime_packed)
+         F_prime_a = damp * F_prime_a + (1 - damp) * matmul(matmul(transpose(X), F_a), X)
+         F_prime_b = damp * F_prime_b + (1 - damp) * matmul(matmul(transpose(X), F_b), X)
+         call pack_matrix(F_prime_a, F_prime_packed_a)
+         call pack_matrix(F_prime_b, F_prime_packed_b)
 
          !> Diagonalize Fock matrix to obtain new orbital coefficients
-         call solve_spev(F_prime_packed, eps, C_prime, alloc_stat)
+         call solve_spev(F_prime_packed_a, eps_a, C_prime_a, alloc_stat)
+         if (alloc_stat /= 0) error stop "Diagonalization of F failed."
+         call solve_spev(F_prime_packed_b, eps_b, C_prime_b, alloc_stat)
          if (alloc_stat /= 0) error stop "Diagonalization of F failed."
 
          !> Transform C to original basis
-         C = matmul(X, C_prime)
+         C_a = matmul(X, C_prime_a)
+         C_b = matmul(X, C_prime_b)
 
          !> Form density matrix
-         P = matmul(matmul(C, n_occ), transpose(C))
+         P_a = matmul(matmul(C_a, n_occ_a), transpose(C_a))
+         P_b = matmul(matmul(C_b, n_occ_b), transpose(C_b))
 
          !> Calculate the HF energy
-         call calc_hf_energy(T+V , F, P, nbf, escf)
+         call calc_hf_energy(T+V , F_a, F_b, P_a, P_b, nbf, escf)
 
          !> Print the HF energy
          write(*, '(I6, 2F20.14, F8.4)') iter, escf, escf - ehf, damp
@@ -459,7 +527,6 @@ contains
 
          !> Update the HF energy
          ehf = escf
-        
 
       end do
 
@@ -472,157 +539,10 @@ contains
       write (*, 102)
 
       !*********************************************************
-      !******************* PARTIAL CHARGES *********************
+      !******************* SPIN CONTAMINATION ******************
       !*********************************************************
 
-      !*********************************************************
-      !******************* CHARGE DENISTY **********************
-      !*********************************************************
-
-      !*********************************************************
-      !******************* NUMERICAL GRADIENT ******************
-      !*********************************************************
-
-      !*********************************************************
-      !******************* RMP2 ********************************
-      !*********************************************************
-
-      write (*, 101)
-      write(*, '(A)') 'MP2 Calculation'
-      write (*, 102)
-
-      !> MO two-electron integrals
-      allocate(mo_two_ints(nbf, nbf, nbf, nbf), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of mo_two_ints failed."
-      allocate(mo_two_ints_tmp(nbf, nbf, nbf, nbf), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of mo_two_ints_tmp failed."
-
-      if (present(print_level)) then
-         write (*, 101)
-         write(*, '(A)') 'AO to MO transformation'
-         write (*, 102)
-      end if
-
-      !> AO to MO transformation (N^8)
-      do a = 1, nbf
-         do b = 1, nbf
-            do g = 1, nbf
-               do h = 1, nbf
-
-                  mo_two_ints(a, b, g, h) = 0.0_wp
-
-                  do i = 1, nbf
-                     do j = 1, nbf
-                        do k = 1, nbf
-                           do l = 1, nbf
-                              mo_two_ints(a, b, g, h) = mo_two_ints(a, b, g, h) + &
-                                 C(i, a) * C(j, b) * C(k, g) * C(l, h) * two_ints(i, j, k, l)
-                           end do
-                        end do
-                     end do
-                  end do
-
-               end do
-            end do
-         end do
-      end do
-
-      !> AO to MO transformation (N^5) via (ij|kl) -> (aj|kl) -> (ab|gl) -> (ab|gh)
-      mo_two_ints = 0.0_wp
-      do i = 1, nbf
-         do j = 1, nbf
-            do k = 1, nbf
-               do l = 1, nbf
-
-                  do a = 1, nbf
-                     mo_two_ints(i, j, k, l) = mo_two_ints(i, j, k, l) + &
-                        C(a, i) * two_ints(a, j, k, l)
-                  end do
-
-               end do
-            end do
-         end do
-      end do
-
-      mo_two_ints_tmp = mo_two_ints
-      mo_two_ints = 0.0_wp
-      do i = 1, nbf
-         do j = 1, nbf
-            do k = 1, nbf
-               do l = 1, nbf
-
-                  do b = 1, nbf
-                     mo_two_ints(i, j, k, l) = mo_two_ints(i, j, k, l) + &
-                        C(b, j) * mo_two_ints_tmp(i, b, k, l)
-                  end do
-
-               end do
-            end do
-         end do
-      end do
-
-      mo_two_ints_tmp = mo_two_ints
-      mo_two_ints = 0.0_wp
-      do i = 1, nbf
-         do j = 1, nbf
-            do k = 1, nbf
-               do l = 1, nbf
-
-                  do g = 1, nbf
-                     mo_two_ints(i, j, k, l) = mo_two_ints(i, j, k, l) + &
-                        C(g, k) * mo_two_ints_tmp(i, j, g, l)
-                  end do
-
-               end do
-            end do
-         end do
-      end do
-
-      mo_two_ints_tmp = mo_two_ints
-      mo_two_ints = 0.0_wp
-      do i = 1, nbf
-         do j = 1, nbf
-            do k = 1, nbf
-               do l = 1, nbf
-
-                  do h = 1, nbf
-                     mo_two_ints(i, j, k, l) = mo_two_ints(i, j, k, l) + &
-                        C(h, l) * mo_two_ints_tmp(i, j, k, h)
-                  end do
-
-               end do
-            end do
-         end do
-      end do
-
-      !> Calculate MP2 energy
-      emp2 = 0.0_wp
-      do a = 1, nel / 2
-         do b = 1, nel / 2
-            do g = nel / 2 + 1, nbf
-               do h = nel / 2 + 1, nbf
-               
-                  emp2 = emp2 + mo_two_ints(a, g, b, h) &
-                  * (2.0_wp * mo_two_ints(a, g, b, h) &
-                  - mo_two_ints(a, h, b, g)) / (eps(a) + eps(b) - eps(g) - eps(h))
-               
-               end do
-            end do
-         end do
-      end do
-
-      deallocate(mo_two_ints_tmp)
-      deallocate(mo_two_ints)
-
-      !> Print the MP2 energy
-      write (*, 101)
-      write(*, '(A)') 'MP2 energy'
-      write(*, '(A, F20.14)') '  E_MP2   :', emp2
-      write(*, '(A, F20.14)') '  E_HF    :', ehf
-      write(*, '(A, F20.14)') '  E_total :', ehf + enn + emp2
-      write (*, 102)
-
-   end subroutine scf_prog
+   end subroutine uhf_prog
 
    !> Calculate the symmetric orthonormalizer
    subroutine calc_symmetric_orthonormalizer(S_packed, nbf, X)
@@ -705,55 +625,75 @@ contains
    end subroutine calc_symmetric_orthonormalizer
 
    !> Set the occupation matrix
-   subroutine set_n_occ(nbf, nel, n_occ)
+   subroutine set_n_occ(nbf, nel, n_occ_a, n_occ_b)
       implicit none
       integer, intent(in) :: nbf
       integer, intent(in) :: nel
-      integer, intent(out), allocatable, dimension(:, :) :: n_occ
+      integer, intent(out), allocatable, dimension(:, :) :: n_occ_a, n_occ_b
 
       ! variables for routine
       integer :: alloc_stat, i, temp
 
-      allocate (n_occ(nbf, nbf), stat=alloc_stat)
+      allocate (n_occ_a(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop 1
+      allocate (n_occ_b(nbf, nbf), stat=alloc_stat)
       if (alloc_stat /= 0) error stop 1
 
-      n_occ = 0.0_wp
+      n_occ_a = 0.0_wp
+      n_occ_b = 0.0_wp
+
       temp = nel
+
       do i = 1, nbf
-         n_occ(i, i) = 2
-         temp = temp - 2
+
+         n_occ_a(i, i) = 1
+         temp = temp - 1
+         
          if (temp == 0) then
          exit
          end if
+      
+         n_occ_b(i, i) = 1
+         temp = temp - 1
+         
+         if (temp == 0) then
+         exit
+         end if
+
       end do
    
    end subroutine set_n_occ
 
    !> Calculate HF energy
-   subroutine calc_hf_energy(H_0, F, P, nbf, ehf)
+   subroutine calc_hf_energy(H_0, F_a, F_b, P_a, P_b, nbf, ehf)
       implicit none
       real(wp), intent(in) :: H_0(:,:)
-      real(wp), intent(in) :: F(:,:)
-      real(wp), intent(in) :: P(:,:)
+      real(wp), intent(in) :: F_a(:,:)
+      real(wp), intent(in) :: F_b(:,:)
+      real(wp), intent(in) :: P_a(:,:)
+      real(wp), intent(in) :: P_b(:,:)
       integer, intent(in) :: nbf
       real(wp), intent(out) :: ehf
 
-      real(wp), allocatable :: temp(:,:)
+      real(wp), allocatable :: temp_a(:,:)
+      real(wp), allocatable :: temp_b(:,:)
 
       integer :: i, j
 
       !> Allocate memory
-      allocate(temp(nbf, nbf))
+      allocate(temp_a(nbf, nbf))
+      allocate(temp_b(nbf, nbf))
 
       !> Calculate F = H_0 + F
-      temp = matmul(H_0 + F, P)
+      temp_a = matmul(H_0 + F_a, P_a)
+      temp_b = matmul(H_0 + F_b, P_b)
 
       !> Calculate HF energy
       ehf = 0.0_wp
       do i = 1, nbf
-         ehf = ehf + temp(i, i) * 0.5_wp
+         ehf = ehf + 0.5_wp * ( temp_a(i, i) + temp_b(i, i) )
       end do
 
    end subroutine calc_hf_energy
 
-end module scf_main
+end module uhf_main

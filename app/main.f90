@@ -13,16 +13,11 @@ program main_prog
   use print_matrix
 
   !> Import rhf program
-  use scf_main, only: scf_prog
-!   use scf_main, only: opt_coords
-!   use scf_main, only: opt_expnts
+  use rhf_main, only: rhf_prog
 
-!   !> Import uhf program
-!   use uhf, only: uhf_prog
+  !> Import uhf program
+  use uhf_main, only: uhf_prog
   
-!   !> convenient wrapper for root mean square
-!   use array_funcs, only: rms, rms_vec
-
   !> Always declare everything explicitly
   implicit none
 
@@ -185,12 +180,13 @@ program main_prog
 
   !> UHF if specified or number of electrons odd
   if (do_uhf == 1 .or. modulo(nel, 2) /= 0) then
-    ! call uhf_prog(nat, nel, nbf, ng, xyz, chrg, zeta, bf_atom_map, &
-                !   ehf, MAX_SCF, TOL_SCF, print_level)
+
     write (*, 101)
-    write (*, "(A)") "UHF not implemented yet"
+    write (*, "(A)") "UHF calculation"
     write (*, 102)
-    error stop 1
+
+    call uhf_prog(nat, nel, nbf, ng, xyz, chrg, zeta, bf_atom_map, &
+                  ehf, MAX_SCF, TOL_SCF, print_level)
 
     !> RHF
   else
@@ -219,11 +215,13 @@ program main_prog
 !     end if
 
     !> final energy calculation (uses optimized values)
+    
     write (*, 101)
     write (*, "(A)") "RHF calculation"
-    call scf_prog(nat, nel, nbf, ng, xyz, chrg, zeta, bf_atom_map, &
-                  ehf, MAX_SCF, TOL_SCF, do_mp2, print_level)
     write (*, 102)
+
+    call rhf_prog(nat, nel, nbf, ng, xyz, chrg, zeta, bf_atom_map, &
+                  ehf, MAX_SCF, TOL_SCF, do_mp2, print_level)
 
   end if
 
