@@ -103,12 +103,9 @@ contains
       integer, dimension(:, :), allocatable :: n_occ_a
       real(wp), dimension(:, :), allocatable :: F_a
       real(wp), dimension(:, :), allocatable :: F_prime_a
-      real(wp), dimension(:), allocatable :: F_packed_a
       real(wp), dimension(:), allocatable :: F_prime_packed_a
       real(wp), dimension(:, :), allocatable :: C_a
-      real(wp), dimension(:), allocatable :: C_packed_a
       real(wp), dimension(:, :), allocatable :: C_prime_a
-      real(wp), dimension(:), allocatable :: C_prime_packed_a
       real(wp), dimension(:, :), allocatable :: P_a
 
       !> beta
@@ -116,12 +113,9 @@ contains
       integer, dimension(:, :), allocatable :: n_occ_b
       real(wp), dimension(:, :), allocatable :: F_b
       real(wp), dimension(:, :), allocatable :: F_prime_b
-      real(wp), dimension(:), allocatable :: F_packed_b
       real(wp), dimension(:), allocatable :: F_prime_packed_b
       real(wp), dimension(:, :), allocatable :: C_b
-      real(wp), dimension(:), allocatable :: C_packed_b
       real(wp), dimension(:, :), allocatable :: C_prime_b
-      real(wp), dimension(:), allocatable :: C_prime_packed_b
       real(wp), dimension(:, :), allocatable :: P_b
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -131,6 +125,13 @@ contains
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       integer :: i, j, k, l
       integer :: spin
+
+      ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      real(wp) :: S_two_expectation
+      integer :: n_el_a, n_el_b
+      real(wp) :: S_two
+      real(wp) :: Delta
+      real(wp), allocatable, dimension(:,:) :: tmp_mos
 
       101 format(//, "---------------------------------------------------------------")
       102 format("---------------------------------------------------------------")
@@ -309,7 +310,7 @@ contains
       write (*, 102)
       
       !> Set the occupation matrix, for RHF this is the identity matrix
-      call set_n_occ(nbf, nel, n_occ_a, n_occ_b)
+      call set_n_occ(nbf, nel, n_occ_a, n_occ_b, n_el_a, n_el_b)
 
       !> Print the occupation matrix manually
       write(*, '(A)') '', 'matrix : Initial n_occ:', ''
@@ -372,14 +373,10 @@ contains
       !> Coeffs matrix
       allocate(C_a(nbf, nbf), stat=alloc_stat)
       if (alloc_stat /= 0) error stop "Allocation of C failed."
-      allocate(C_packed_a(nbf*(nbf+1)/2), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of C_packed failed."
       allocate(C_prime_a(nbf, nbf), stat=alloc_stat)
       if (alloc_stat /= 0) error stop "Allocation of C_prime failed."
       allocate(C_b(nbf, nbf), stat=alloc_stat)
       if (alloc_stat /= 0) error stop "Allocation of C failed."
-      allocate(C_packed_b(nbf*(nbf+1)/2), stat=alloc_stat)
-      if (alloc_stat /= 0) error stop "Allocation of C_packed failed."
       allocate(C_prime_b(nbf, nbf), stat=alloc_stat)
       if (alloc_stat /= 0) error stop "Allocation of C_prime failed."
 
@@ -542,6 +539,34 @@ contains
       !******************* SPIN CONTAMINATION ******************
       !*********************************************************
 
+      !> Calculate the expectation value of S^2 
+      S_two_expectation = ( n_el_a - n_el_b ) * 0.5_wp * &
+                           ( ( n_el_a - n_el_b ) * 0.5_wp + 1.0_wp )
+
+      !> AO to MO transformation
+      allocate(tmp_mos(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of tmp_mos failed."
+      tmp_mos = matmul(matmul(transpose(C_a), S), C_b)
+
+      !> Calculate the spin contamination
+      Delta = n_el_b
+      do i = 1, n_el_a
+         do j = 1, n_el_b
+            Delta = Delta - tmp_mos(i, j) ** 2
+         end do
+      end do
+
+      !> Print the spin contamination
+      write (*, 101)
+      write (*, "(A)") "Spin contamination:"
+      write(*, '(A, F20.14)') '  S**2                   :', S_two_expectation + Delta
+      write(*, '(A, F20.14)') '  S**2 expectation value :', S_two_expectation
+      write(*, '(A, F20.14)') '  Spin contamination     :', Delta
+      write (*, 102)
+
+
+
+
    end subroutine uhf_prog
 
    !> Calculate the symmetric orthonormalizer
@@ -625,11 +650,12 @@ contains
    end subroutine calc_symmetric_orthonormalizer
 
    !> Set the occupation matrix
-   subroutine set_n_occ(nbf, nel, n_occ_a, n_occ_b)
+   subroutine set_n_occ(nbf, nel, n_occ_a, n_occ_b, n_el_a, n_el_b)
       implicit none
       integer, intent(in) :: nbf
       integer, intent(in) :: nel
       integer, intent(out), allocatable, dimension(:, :) :: n_occ_a, n_occ_b
+      integer, intent(out), optional :: n_el_a, n_el_b
 
       ! variables for routine
       integer :: alloc_stat, i, temp
@@ -644,9 +670,13 @@ contains
 
       temp = nel
 
+      n_el_a = 0
+      n_el_b = 0
+
       do i = 1, nbf
 
          n_occ_a(i, i) = 1
+         n_el_a = n_el_a + 1
          temp = temp - 1
          
          if (temp == 0) then
@@ -654,6 +684,7 @@ contains
          end if
       
          n_occ_b(i, i) = 1
+         n_el_b = n_el_b + 1
          temp = temp - 1
          
          if (temp == 0) then

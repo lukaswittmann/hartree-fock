@@ -24,9 +24,15 @@ module rhf_main
    !> Always declare everything explicitly
    implicit none
 
+   !> Constants
+   real(wp), parameter :: pi = 3.14159265358979323846
+
+
    !> All subroutines within this module are not exported, except for scf_prog
    private
    public :: rhf_prog
+
+
 
 contains
 
@@ -113,7 +119,20 @@ contains
       real(wp), dimension(:, :, :, :), allocatable :: two_ints ! 4D array of tei
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      integer :: i, j, k, l
+      integer :: i, j, k, l, m, n, o
+
+      ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      real(wp), dimension(:), allocatable :: q_atoms
+      real(wp), dimension(:,:), allocatable :: ps
+      real(wp) :: nel_check
+
+      ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      real(wp) :: distances, ri, rj, rk
+      integer :: gridpoints 
+      real(wp) :: rho_r
+      real(wp), dimension(:,:,:), allocatable :: rho_rrr
+      real(wp), dimension(:,:), allocatable :: K_AB
+      real(wp), dimension(:), allocatable :: R
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       real(wp), dimension(:, :, :, :), allocatable :: mo_two_ints
@@ -475,9 +494,100 @@ contains
       !******************* PARTIAL CHARGES *********************
       !*********************************************************
 
+      !> PS
+      allocate(ps(nbf, nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of ps failed."
+      ps = matmul(P, S)
+
+      !> Check total number of electrons
+      nel_check = 0
+      do i = 1, nbf
+            nel_check = nel_check + ps(i, i)
+      end do
+
+      !> Print the total number of electrons
+      write (*, 101)
+      write(*, '(A, F5.2)') 'N_electrons calculation :', nel_check
+      write(*, '(A, I2)') 'N_electrons expected    :', nel
+      write (*, 102)
+
+      !> Mulliken charges
+      allocate(q_atoms(nat), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of q_atoms failed."
+
+      !> Calculate Mulliken charges
+      do i = 1, nat
+         q_atoms(i) = chrg(i)
+         do j = 1, nbf
+            if (bf_atom_map(j) == i) then
+               q_atoms(i) = q_atoms(i) - ps(j, j)
+            end if
+         end do
+      end do
+
+      !> Print the Mulliken charges
+      write (*, 101)
+      write(*, '(A)') 'Mulliken charges:'
+      do i = 1, nat
+         write(*, '(A, I3, A, F20.14)') '  Atom', i, ' : ', q_atoms(i)
+      end do
+      write (*, 102)
+   
       !*********************************************************
       !******************* CHARGE DENISTY **********************
       !*********************************************************
+
+      !> Define grid to calculate charge density
+      gridpoints = 21
+      distances = 1.0_wp
+      allocate(rho_rrr(gridpoints, gridpoints, gridpoints), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of rho_rrr failed."
+      allocate(R(3), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of R failed."
+
+      write (*, 101)
+      write(*, '(A, I7, A)') 'Charge density (', gridpoints**3, ' gridpoints)'
+      write (*, 102)
+
+      rho_rrr = 0.0_wp
+      ri = - distances
+      do i = 1, gridpoints
+         rj = - distances
+         do j = 1, gridpoints
+            rk = - distances
+            do k = 1, gridpoints
+               R = (/ri, rj, rk/)
+               do l = 1, nbf
+                  do m = 1, nbf
+                     do n = 1, ng
+                        do o = 1, ng
+                           rho_rrr(i, j, k) = rho_rrr(i, j, k) + &
+                              P(l, m) * prod_pgto(expnts(n, l), expnts(o, m), xyz(:, bf_atom_map(l)), xyz(:, bf_atom_map(m)), R )
+                        end do
+                     end do
+                  end do
+               end do
+               rk = rk + 2 * distances / ( gridpoints - 1 )
+            end do
+            rj = rj + 2 * distances / ( gridpoints - 1 )
+         end do
+         ri = ri + 2 * distances / ( gridpoints - 1 )
+      end do
+
+      !> Print the charge density along z axis
+      write (*, 101)
+      ri = - distances
+      write(*, '(A)') 'Charge density along z axis:'
+      do i = 1, gridpoints
+         write(*, '(A, I3, A, F20.14, F20.14)') '  ', i, ' : ', ri, rho_rrr(gridpoints/2+1, gridpoints/2+1, i)
+         ri = ri + 2 * distances / ( gridpoints - 1 )
+      end do
+
+      !> Print maximum of the charge density
+      write(*, '(A)') '', 'Maximum charge density:'
+      write(*, '(A, F20.14)') '  rho_max :', maxval(rho_rrr)
+      write (*, 102)
+
 
       !*********************************************************
       !******************* NUMERICAL GRADIENT ******************
@@ -616,7 +726,7 @@ contains
 
       !> Print the MP2 energy
       write (*, 101)
-      write(*, '(A)') 'MP2 energy'
+      write(*, '(A)') 'MP2 energy:'
       write(*, '(A, F20.14)') '  E_MP2   :', emp2
       write(*, '(A, F20.14)') '  E_HF    :', ehf
       write(*, '(A, F20.14)') '  E_total :', ehf + enn + emp2
@@ -755,5 +865,36 @@ contains
       end do
 
    end subroutine calc_hf_energy
+
+   !> Calculate product of two basis functions with Gaussian product theorem at point R
+   real function prod_pgto(a, b, R_a, R_b, R)
+      implicit none
+      real(wp), intent(in) :: a
+      real(wp), intent(in) :: b
+      real(wp), dimension(:), intent(in) :: R_a
+      real(wp), dimension(:), intent(in) :: R_b
+      real(wp), dimension(:), intent(in) :: R
+      real(wp) :: R_ab
+
+      R_ab = norm2(R_a - R_b)
+
+      prod_pgto = K_AB(a, b, R_ab) * exp(- ( a + b ) * &
+         sum( ( R - ( ( a * R_a + b * R_b ) / (a + b) ) ) ** 2 ) )
+
+   end function prod_pgto
+
+   !> Calculate K_AB pre-exponential factor
+   real function K_AB(a,b,R_ab)
+      implicit none
+      real(wp), intent(in) :: a
+      real(wp), intent(in) :: b
+      real(wp), intent(in) :: R_ab
+
+      K_AB = (2.0_wp * a * b / ( (a + b) * pi ) ) ** 0.75_wp * exp(-a * b * R_ab**2 / (a + b))
+
+   end function K_AB
+
+
+
 
 end module rhf_main
