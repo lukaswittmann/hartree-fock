@@ -12,11 +12,11 @@ SRCS += integrals.f90\
         slater.f90\
         print_matrix.f90\
         input_reader.f90\
-        prog.f90\
+        rhf.f90\
+        uhf.f90\
         tools.f90\
         linear_algebra.f90\
-        io_tools.f90\
-        input_reader.f90
+        io_tools.f90
 
 # make object files from source names
 OBJS := $(patsubst %, build/%.o, $(SRCS))
@@ -64,14 +64,29 @@ $(OBJS): $(BUILD)/%.o: %
 
 # dependencies must be defined explicitly
 $(BUILD)/main.f90.o:    $(BUILD)/integrals.f90.o\
+                        $(BUILD)/input_reader.f90.o\
+                        $(BUILD)/io_tools.f90.o\
+                        $(BUILD)/print_matrix.f90.o\
+                        $(BUILD)/rhf.f90.o\
+                        $(BUILD)/uhf.f90.o
+
+$(BUILD)/input_reader.f90.o: $(BUILD)/io_tools.f90.o
+
+$(BUILD)/tools.f90.o: $(BUILD)/print_matrix.f90.o
+
+$(BUILD)/rhf.f90.o:     $(BUILD)/integrals.f90.o\
                         $(BUILD)/slater.f90.o\
                         $(BUILD)/print_matrix.f90.o\
-                        $(BUILD)/input_reader.f90.o\
-                        $(BUILD)/prog.f90.o\
                         $(BUILD)/tools.f90.o\
                         $(BUILD)/linear_algebra.f90.o\
-                        $(BUILD)/io_tools.f90.o\
-                        $(BUILD)/input_reader.f90.o
+                        $(BUILD)/io_tools.f90.o
+
+$(BUILD)/uhf.f90.o:     $(BUILD)/integrals.f90.o\
+                        $(BUILD)/slater.f90.o\
+                        $(BUILD)/print_matrix.f90.o\
+                        $(BUILD)/tools.f90.o\
+                        $(BUILD)/linear_algebra.f90.o\
+                        $(BUILD)/io_tools.f90.o
 
 .PHONY: setup clean veryclean
 # make a build directory
