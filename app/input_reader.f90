@@ -26,7 +26,6 @@ contains
     integer :: counter
     counter = 1
 
-
     ! ! read first line containing info for tasks
     ! read (input, *, iostat=io_stat) do_opt, do_mp2, do_uhf
     ! if (io_stat /= 0) then
