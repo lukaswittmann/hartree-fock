@@ -25,7 +25,7 @@ module rhf_main
    implicit none
 
    !> Constants
-   real(wp), parameter :: pi = 3.14159265358979323846
+   real(wp), parameter :: pi = 3.14159265358979323846_wp
 
 
    !> All subroutines within this module are not exported, except for scf_prog
@@ -119,7 +119,7 @@ contains
       real(wp), dimension(:, :, :, :), allocatable :: two_ints ! 4D array of tei
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      integer :: i, j, k, l, m, n, o
+      integer :: i, j, k, l, m, n
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       real(wp), dimension(:), allocatable :: q_atoms
@@ -129,10 +129,9 @@ contains
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       real(wp) :: distances, ri, rj, rk
       integer :: gridpoints 
-      real(wp) :: rho_r
       real(wp), dimension(:,:,:), allocatable :: rho_rrr
-      real(wp), dimension(:,:), allocatable :: K_AB
       real(wp), dimension(:), allocatable :: R
+      real(wp), dimension(:), allocatable :: chi
 
       ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       real(wp), dimension(:, :, :, :), allocatable :: mo_two_ints
@@ -157,7 +156,7 @@ contains
       write (*, "(A)") "Basis set setup"
       write (*, 102)
 
-      !> Basis coefficients
+      !> Basis coefficientsm1f
       allocate (coeffs(ng, nbf), stat=alloc_stat)
       if (alloc_stat /= 0) error stop "Allocation of coeffs failed."
 
@@ -319,7 +318,10 @@ contains
       !> Diagonalize initial Fock matrix to obtain initial orbital coefficients
       call solve_spev(F_prime_packed, eps, C_prime, alloc_stat)
       if (alloc_stat /= 0) error stop "Diagonalization of F failed."
-     
+
+      !> Transform C to original basis
+      C = matmul(X, C_prime)
+
       !> Print the initial guesses
       if (present(print_level)) then
          call write_matrix(F, name='Initial guess F')
@@ -329,16 +331,12 @@ contains
          call write_vector(eps, name='Initial guess eps')
       end if
 
-      !> Transform C to original basis
-      C = matmul(X, C_prime)
-
       !> Density matrix
       allocate(P(nbf, nbf), stat=alloc_stat)
       if (alloc_stat /= 0) error stop "Allocation of P failed."
 
       !> Form density matrix
       P = matmul(matmul(C, n_occ), transpose(C))
-
       !> Print the density matrix
       if (present(print_level)) then
          call write_matrix(P, name='Initial P')
@@ -465,22 +463,33 @@ contains
             exit
          end if
 
-         ! !> Debug print
-         ! if (present(print_level)) then
-         !    write (*, 101)
-         !    write (*, *) "Scf iteration ", iter
-         !    call write_matrix(F, name='F')
-         !    call write_matrix(F_prime, name='F_prime')
-         !    call write_vector(eps, name='eps')
-         !    call write_matrix(P, name='P')
-         !    write (*, 102)
-         ! end if
+        !  !> Debug print
+        !  if (present(print_level)) then
+        !     write (*, 101)
+        !     write (*, *) "Scf iteration ", iter
+        !     call write_matrix(F, name='F')
+        !     call write_matrix(F_prime, name='F_prime')
+        !     call write_vector(eps, name='eps')
+        !     call write_matrix(P, name='P')
+        !     write (*, 102)
+        !  end if
 
          !> Update the HF energy
          ehf = escf
         
 
       end do
+
+               !> Debug print
+         if (present(print_level)) then
+            write (*, 101)
+            write (*, *) "Scf converged"
+            call write_matrix(F, name='F')
+            call write_matrix(F_prime, name='F_prime')
+            call write_vector(eps, name='eps')
+            call write_matrix(P, name='P')
+            write (*, 102)
+         end if
 
       !> Print the final energies
       write (*, 101)
@@ -489,6 +498,9 @@ contains
       write(*, '(A, F20.14)') '  V_nn    :', enn
       write(*, '(A, F20.14)') '  E_total :', ehf + enn
       write (*, 102)
+
+      ! stop
+
 
       !*********************************************************
       !******************* PARTIAL CHARGES *********************
@@ -532,18 +544,22 @@ contains
          write(*, '(A, I3, A, F20.14)') '  Atom', i, ' : ', q_atoms(i)
       end do
       write (*, 102)
+
+      stop
    
       !*********************************************************
       !******************* CHARGE DENISTY **********************
       !*********************************************************
 
       !> Define grid to calculate charge density
-      gridpoints = 21
-      distances = 1.0_wp
+      distances = 4.0_wp
+      gridpoints = int(distances * 20) + 1
       allocate(rho_rrr(gridpoints, gridpoints, gridpoints), stat=alloc_stat)
       if (alloc_stat /= 0) error stop "Allocation of rho_rrr failed."
       allocate(R(3), stat=alloc_stat)
       if (alloc_stat /= 0) error stop "Allocation of R failed."
+      allocate(chi(nbf), stat=alloc_stat)
+      if (alloc_stat /= 0) error stop "Allocation of chi failed."
 
       write (*, 101)
       write(*, '(A, I7, A)') 'Charge density (', gridpoints**3, ' gridpoints)'
@@ -557,22 +573,29 @@ contains
             rk = - distances
             do k = 1, gridpoints
                R = (/ri, rj, rk/)
+
+               chi = 0.0_wp
                do l = 1, nbf
-                  do m = 1, nbf
-                     do n = 1, ng
-                        do o = 1, ng
-                           rho_rrr(i, j, k) = rho_rrr(i, j, k) + &
-                              P(l, m) * prod_pgto(expnts(n, l), expnts(o, m), xyz(:, bf_atom_map(l)), xyz(:, bf_atom_map(m)), R )
-                        end do
-                     end do
+                  do n = 1, ng
+                     chi(l) = chi(l) + coeffs(n, l) * exp(-expnts(n, l) * &
+                        sum((R - xyz(:, bf_atom_map(l)))**2))
                   end do
                end do
+
+               do l = 1, nbf
+                  do m = 1, nbf
+                     rho_rrr(i, j, k) = rho_rrr(i, j, k) + P(l, m) * chi(l) * chi(m)
+                  end do
+               end do
+
                rk = rk + 2 * distances / ( gridpoints - 1 )
             end do
             rj = rj + 2 * distances / ( gridpoints - 1 )
          end do
          ri = ri + 2 * distances / ( gridpoints - 1 )
       end do
+
+      ! stop
 
       !> Print the charge density along z axis
       write (*, 101)
@@ -588,6 +611,7 @@ contains
       write(*, '(A, F20.14)') '  rho_max :', maxval(rho_rrr)
       write (*, 102)
 
+      ! stop
 
       !*********************************************************
       !******************* NUMERICAL GRADIENT ******************
@@ -774,7 +798,6 @@ contains
       S_diag_packed = S_packed
       call solve_spev(S_diag_packed, eigenval, eigenvec, lapack_stat)
       if (lapack_stat /= 0) error stop "Diagonalization of S failed."
-      
       !> Calculate s**−1/2
       allocate(s_to_the_minus_one_halfs(nbf, nbf), stat=alloc_stat)
       if (alloc_stat /= 0) error stop "Allocation of s_to_the_minus_one_halfs failed."
@@ -867,7 +890,7 @@ contains
    end subroutine calc_hf_energy
 
    !> Calculate product of two basis functions with Gaussian product theorem at point R
-   real function prod_pgto(a, b, R_a, R_b, R)
+   real(wp) function prod_pgto(a, b, R_a, R_b, R)
       implicit none
       real(wp), intent(in) :: a
       real(wp), intent(in) :: b
@@ -881,16 +904,19 @@ contains
       prod_pgto = K_AB(a, b, R_ab) * exp(- ( a + b ) * &
          sum( ( R - ( ( a * R_a + b * R_b ) / (a + b) ) ) ** 2 ) )
 
+      ! write(*,*) "KAB", K_AB(a, b, R_ab)
+      ! write(*,*) a,b, R_ab
+
    end function prod_pgto
 
    !> Calculate K_AB pre-exponential factor
-   real function K_AB(a,b,R_ab)
+   real(wp) function K_AB(a,b,R_ab)
       implicit none
       real(wp), intent(in) :: a
       real(wp), intent(in) :: b
       real(wp), intent(in) :: R_ab
 
-      K_AB = (2.0_wp * a * b / ( (a + b) * pi ) ) ** 0.75_wp * exp(-a * b * R_ab**2 / (a + b))
+      K_AB = exp(-a * b * R_ab**2 / (a + b))
 
    end function K_AB
 
