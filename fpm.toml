@@ -3,3 +3,6 @@ name = "scf"
 [[executable]]
 name = "hartree-fock"
 main = "main.f90"
+
+[fortran]
+implicit-external = true
